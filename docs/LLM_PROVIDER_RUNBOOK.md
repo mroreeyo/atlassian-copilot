@@ -1,6 +1,6 @@
 # LLM Provider Runbook
 
-AX Knowledge Copilot supports personal LLM provider settings through the Broker boundary only.
+Atlassian Copilot supports personal LLM provider settings through the Broker boundary only.
 
 ## What users paste in `/settings`
 
@@ -14,8 +14,8 @@ AX Knowledge Copilot supports personal LLM provider settings through the Broker 
 The browser posts keys to `POST /api/settings/llm` and never stores them in localStorage, sessionStorage, frontend env, or frontend source code. The Broker encrypts personal profiles under:
 
 ```txt
-~/.ax-knowledge-copilot/broker/llm-profile.json
-~/.ax-knowledge-copilot/broker/.credential-key
+~/.atlassian-copilot/broker/llm-profile.json
+~/.atlassian-copilot/broker/.credential-key
 ```
 
 Set `AKC_BROKER_STATE_DIR` to move that local Broker state. `DELETE /api/settings/llm` clears only the LLM profile; Atlassian settings remain intact.

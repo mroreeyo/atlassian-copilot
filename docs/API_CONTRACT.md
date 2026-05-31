@@ -1,6 +1,6 @@
 # API_CONTRACT.md
 
-This is the canonical Broker contract for AX Knowledge Copilot. Browser code may call only these Broker endpoints and must validate payloads with shared Zod schemas from `packages/shared`.
+This is the canonical Broker contract for Atlassian Copilot. Browser code may call only these Broker endpoints and must validate payloads with shared Zod schemas from `packages/shared`.
 
 ## 1. Routes
 

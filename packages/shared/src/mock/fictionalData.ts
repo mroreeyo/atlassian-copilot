@@ -126,7 +126,7 @@ export const fictionalSources: AtlassianSource[] = [
       confluence: {
         pageId: 'AX-KB-001',
         spaceKey: 'AKC',
-        spaceName: 'AX Knowledge',
+        spaceName: 'Atlassian Demo',
         contentType: 'page',
         updated: '2026-05-26T11:00:00Z'
       }
@@ -146,7 +146,7 @@ export const fictionalSources: AtlassianSource[] = [
       confluence: {
         pageId: 'AX-KB-014',
         spaceKey: 'AKC',
-        spaceName: 'AX Knowledge',
+        spaceName: 'Atlassian Demo',
         contentType: 'page',
         updated: '2026-05-27T10:30:00Z'
       }
@@ -166,7 +166,7 @@ export const fictionalSources: AtlassianSource[] = [
       confluence: {
         pageId: 'AX-KB-008',
         spaceKey: 'AKC',
-        spaceName: 'AX Knowledge',
+        spaceName: 'Atlassian Demo',
         contentType: 'page',
         updated: '2026-05-25T15:20:00Z'
       }

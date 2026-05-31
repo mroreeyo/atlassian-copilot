@@ -116,7 +116,7 @@ try {
   const webPort = await chooseWebPort();
   const brokerTarget = `http://localhost:${broker.port}`;
 
-  console.info('[dev] AX Knowledge Copilot local dev');
+  console.info('[dev] Atlassian Copilot local dev');
   console.info(`[dev] Web URL:    http://localhost:${webPort}/copilot`);
   console.info(`[dev] Broker URL: ${brokerTarget}`);
   if (isWsl) {

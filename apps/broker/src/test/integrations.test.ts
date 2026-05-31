@@ -71,7 +71,7 @@ describe('broker integration guards', () => {
           id: '123',
           title: 'Runbook',
           type: 'page',
-          space: { key: 'AKC', name: 'AX Knowledge' },
+          space: { key: 'AKC', name: 'Atlassian Demo' },
           version: { when: '2026-05-30T01:00:00.000Z' },
           body: { view: { value: '<p>SSO 점검 절차</p>' } },
           _links: { webui: '/wiki/spaces/AKC/pages/123/Runbook' }

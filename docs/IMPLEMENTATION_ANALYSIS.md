@@ -5,7 +5,7 @@ Source: `.omx/specs/deep-interview-plan-improvement-review.md`
 
 ## 1. Implementation thesis
 
-AX Knowledge Copilot must be implemented as a **dark-first, chat-first Copilot** rather than a dashboard. The main failure mode identified by deep interview is **overbuild / dashboard drift**. The implementation therefore optimizes for one complete Copilot mock flow before expanding real integrations or support surfaces.
+Atlassian Copilot must be implemented as a **dark-first, chat-first Copilot** rather than a dashboard. The main failure mode identified by deep interview is **overbuild / dashboard drift**. The implementation therefore optimizes for one complete Copilot mock flow before expanding real integrations or support surfaces.
 
 ## 2. Route freeze
 

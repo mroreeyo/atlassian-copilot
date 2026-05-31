@@ -2,7 +2,7 @@
 
 ## 1. Goal
 
-Build **AX Knowledge Copilot**, a dark-first, chat-first enterprise Copilot that uses Jira/Confluence through `mcp-atlassian` and OpenAI through a secure Broker API.
+Build **Atlassian Copilot**, a dark-first, chat-first enterprise Copilot that uses Jira/Confluence through `mcp-atlassian` and OpenAI through a secure Broker API.
 
 The project must demonstrate frontend and AI UX capabilities aligned with an AX frontend / AI UX role:
 
@@ -31,7 +31,7 @@ The project exists because users spend time:
 - preparing comments, reports, and follow-up actions
 - checking whether an AI-generated change is safe to execute
 
-AX Knowledge Copilot moves the user from scattered work records to a reviewable next action.
+Atlassian Copilot moves the user from scattered work records to a reviewable next action.
 
 ## 3. Product Positioning
 

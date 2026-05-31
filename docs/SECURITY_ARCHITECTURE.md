@@ -18,7 +18,7 @@ The browser is untrusted.
 
 ## 2. Secrets
 
-Secrets must exist only in the Broker boundary: runtime environment, an ignored local Broker env file such as `apps/broker/.env` if the runtime loads it, or the Broker personal settings store under `~/.ax-knowledge-copilot/broker` by default, or `AKC_BROKER_STATE_DIR` when set.
+Secrets must exist only in the Broker boundary: runtime environment, an ignored local Broker env file such as `apps/broker/.env` if the runtime loads it, or the Broker personal settings store under `~/.atlassian-copilot/broker` by default, or `AKC_BROKER_STATE_DIR` when set.
 
 Required examples:
 

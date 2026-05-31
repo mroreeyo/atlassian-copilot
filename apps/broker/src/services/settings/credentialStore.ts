@@ -14,7 +14,7 @@ export interface EncryptedSecret {
 
 export function resolveStateDir(env = process.env): string {
   if (env.AKC_BROKER_STATE_DIR) return resolve(env.AKC_BROKER_STATE_DIR);
-  return join(homedir(), '.ax-knowledge-copilot', 'broker');
+  return join(homedir(), '.atlassian-copilot', 'broker');
 }
 
 export function profilePath(fileName: string, env = process.env): string {
