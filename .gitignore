@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+coverage/
+*.tsbuildinfo
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+apps/broker/.env
+apps/broker/.env.local
+apps/broker/.local/
+apps/web/.env
+apps/web/.env.local
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Logs / OS / editor
+.DS_Store
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local AI-agent / orchestration artifacts
+.omx/
+.codex/
+omx_wiki/
+outputs/
+prompts/
+AGENTS.md
+
+# Local OMX prompt workflow notes
+docs/OMX_WORKFLOW.md

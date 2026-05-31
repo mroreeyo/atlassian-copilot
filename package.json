@@ -1,0 +1,60 @@
+{
+  "name": "ax-knowledge-copilot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/web",
+    "apps/broker",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev-local.mjs",
+    "dev:web": "npm run dev -w @akc/web",
+    "dev:broker": "npm run dev -w @akc/broker",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc -b",
+    "test": "vitest run --pool=threads --maxWorkers=1 --no-file-parallelism --hookTimeout=60000 --testTimeout=60000",
+    "build": "npm run build -w @akc/shared && npm run build -w @akc/broker && npm run build -w @akc/web",
+    "security:scan": "node scripts/security-scan.mjs",
+    "smoke:mcp:jira-search": "node apps/broker/dist/scripts/smoke-mcp.js jira_search",
+    "smoke:mcp:jira-get-issue": "node apps/broker/dist/scripts/smoke-mcp.js jira_get_issue",
+    "smoke:mcp:confluence-search": "node apps/broker/dist/scripts/smoke-mcp.js confluence_search",
+    "smoke:mcp:confluence-get-page": "node apps/broker/dist/scripts/smoke-mcp.js confluence_get_page",
+    "smoke:llm": "node apps/broker/dist/scripts/smoke-llm.js",
+    "smoke:openai": "node apps/broker/dist/scripts/smoke-llm.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "latest",
+    "@tanstack/react-query": "latest",
+    "fastify": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "react-router-dom": "latest",
+    "zod": "latest",
+    "zustand": "latest"
+  },
+  "devDependencies": {
+    "@eslint/js": "latest",
+    "@testing-library/jest-dom": "latest",
+    "@testing-library/react": "latest",
+    "@testing-library/user-event": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "latest",
+    "autoprefixer": "latest",
+    "eslint": "latest",
+    "globals": "latest",
+    "jsdom": "latest",
+    "postcss": "latest",
+    "tailwindcss": "^3.4.17",
+    "typescript": "latest",
+    "typescript-eslint": "latest",
+    "vite": "latest",
+    "vitest": "latest"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

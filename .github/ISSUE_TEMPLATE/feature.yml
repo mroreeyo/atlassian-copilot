@@ -1,0 +1,20 @@
+name: Feature
+about: Track a product or frontend feature
+labels: [feature]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should this feature achieve?
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Requirements
+      options:
+        - label: Preserves dark-first UI
+        - label: Preserves chat-first UX
+        - label: Does not expose secrets
+        - label: Keeps write actions behind Action Review
