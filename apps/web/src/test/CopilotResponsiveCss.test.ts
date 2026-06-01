@@ -9,6 +9,10 @@ function readWebStylesheet() {
   return readFileSync(join(process.cwd(), 'apps/web/src/styles/index.css'), 'utf8');
 }
 
+function readWebSourceFile(relativePath: string) {
+  return readFileSync(join(process.cwd(), 'apps/web/src', relativePath), 'utf8');
+}
+
 function cssRule(css: string, selector: string) {
   const start = css.indexOf(`${selector} {`);
   expect(start).toBeGreaterThanOrEqual(0);
@@ -26,8 +30,7 @@ function cssRule(css: string, selector: string) {
   throw new Error(`Could not find closing brace for ${selector}`);
 }
 
-function blockContents(css: string, blockStart: string) {
-  const start = css.indexOf(blockStart);
+function blockContentsAt(css: string, start: number, blockStart: string) {
   expect(start).toBeGreaterThanOrEqual(0);
   const openBrace = css.indexOf('{', start);
   expect(openBrace).toBeGreaterThan(start);
@@ -43,14 +46,63 @@ function blockContents(css: string, blockStart: string) {
   throw new Error(`Could not find closing brace for ${blockStart}`);
 }
 
+function allBlockContents(css: string, blockStart: string) {
+  const blocks: string[] = [];
+  let start = css.indexOf(blockStart);
+  while (start >= 0) {
+    blocks.push(blockContentsAt(css, start, blockStart));
+    start = css.indexOf(blockStart, start + blockStart.length);
+  }
+  expect(blocks.length).toBeGreaterThan(0);
+  return blocks;
+}
+
 function cssRuleInBlock(css: string, blockStart: string, selector: string) {
-  return cssRule(blockContents(css, blockStart), selector);
+  for (const block of allBlockContents(css, blockStart)) {
+    if (block.includes(`${selector} {`)) return cssRule(block, selector);
+  }
+
+  expect(`${selector} in ${blockStart}`).toBe('');
+  throw new Error(`Could not find ${selector} in ${blockStart}`);
 }
 
 function numericDeclaration(rule: string, property: string) {
   const match = rule.match(new RegExp(`${property}:\\s*(-?\\d+(?:\\.\\d+)?)`));
   expect(match?.[1]).toBeDefined();
   return Number(match![1]);
+}
+
+function optionalNumericDeclaration(rule: string, property: string) {
+  const match = rule.match(new RegExp(`${property}:\\s*(-?\\d+(?:\\.\\d+)?)`));
+  return match?.[1] ? Number(match[1]) : null;
+}
+
+function combinedRuleForSelector(css: string, selector: string) {
+  const rules = css
+    .split('}')
+    .map((rule) => `${rule}}`)
+    .filter((rule) => {
+      const openBrace = rule.indexOf('{');
+      if (openBrace < 0) return false;
+      return rule
+        .slice(0, openBrace)
+        .split(',')
+        .map((part) => part.trim())
+        .some((part) => part === selector || part.endsWith(` ${selector}`));
+    });
+
+  expect(rules.length, `${selector} should have a CSS rule`).toBeGreaterThan(0);
+  return rules.join('\n');
+}
+
+function expectComfortableTouchTarget(rule: string, selector: string) {
+  const height = optionalNumericDeclaration(rule, 'min-height') ?? optionalNumericDeclaration(rule, 'height');
+  expect(height, `${selector} should have at least a 40px tall hit area`).toBeGreaterThanOrEqual(40);
+
+  if (/send-button|tour-close/.test(selector)) {
+    const width = optionalNumericDeclaration(rule, 'min-width') ?? optionalNumericDeclaration(rule, 'width');
+    expect(width, `${selector} should have at least a 40px wide hit area`).toBeGreaterThanOrEqual(40);
+  }
 }
 
 describe('Copilot responsive CSS', () => {
@@ -130,6 +182,70 @@ describe('Copilot responsive CSS', () => {
   });
 
 
+  it('guards shell-level viewport sizing against mobile browser chrome regressions', () => {
+    const css = readWebStylesheet();
+    const appShellSource = readWebSourceFile('components/layout/AppShell.tsx');
+    const rootRule = cssRule(css, 'html, body, #root');
+    const bodyRule = cssRule(css, 'body');
+    const appShell = cssRule(css, '.app-shell');
+
+    expect(css).toContain('100dvh');
+    expect(`${rootRule}
+${bodyRule}
+${appShell}`).toMatch(/(?:min-)?height:\s*(?:var\(--[\w-]*viewport[\w-]*\)|100dvh)/);
+    expect(`${bodyRule}
+${appShell}`).not.toMatch(/min-height:\s*100vh;\s*}/);
+    expect(appShellSource).not.toContain('min-h-screen');
+  });
+
+  it('keeps sticky composer and Product Tour surfaces safe-area aware', () => {
+    const css = readWebStylesheet();
+    const root = cssRule(css, ':root');
+    const composerStickZone = cssRule(css, '.composer-stick-zone');
+    const tourBackdrop = cssRule(css, '.tour-backdrop');
+    const productTour = cssRule(css, '.product-tour');
+    const mobileProductTour = cssRuleInBlock(css, '@media (max-width: 760px)', '.product-tour');
+
+    expect(root).toContain('safe-area-inset-bottom');
+    expect(composerStickZone).toContain('var(--safe-area-bottom)');
+    expect(composerStickZone).toMatch(/padding[^;]*calc\([^;]*var\(--safe-area-bottom\)/);
+    expect(`${tourBackdrop}
+${productTour}
+${mobileProductTour}`).toContain('safe-area-inset');
+    expect(`${productTour}
+${mobileProductTour}`).toContain('100dvh');
+  });
+
+  it('keeps mobile interactive controls at comfortable tap-target sizes', () => {
+    const css = readWebStylesheet();
+
+    for (const selector of [
+      '.nav a',
+      '.btn',
+      '.send-button',
+      '.suggestion-chip',
+      '.theme-toggle-button',
+      '.tour-replay-button',
+      '.tour-close',
+      '.tour-rail button',
+    ]) {
+      expectComfortableTouchTarget(combinedRuleForSelector(css, selector), selector);
+    }
+  });
+
+  it('keeps narrow support and tool surfaces stacked instead of horizontally cramped', () => {
+    const css = readWebStylesheet();
+    const mobileBlock = allBlockContents(css, '@media (max-width: 760px)').join('\n');
+
+    for (const selector of ['.tool-row', '.tool-call-row-header', '.tool-accordion-trigger', '.actions', '.model-field-actions']) {
+      expect(mobileBlock).toContain(selector);
+    }
+
+    expect(combinedRuleForSelector(mobileBlock, '.tool-row')).toMatch(/(?:grid-template-columns:\s*1fr|flex-direction:\s*column)/);
+    expect(combinedRuleForSelector(mobileBlock, '.actions')).toMatch(/(?:flex-direction:\s*column|display:\s*grid)/);
+    expect(mobileBlock).toMatch(/\.model-field-actions\s+\.btn\s*{[^}]*flex:\s*1 1/s);
+  });
+
 
   it('defines a complete light mode and overrides the main dark surfaces', () => {
     const css = readWebStylesheet();
@@ -168,5 +284,76 @@ describe('Copilot responsive CSS', () => {
       const mobileButton = cssRuleInBlock(css, '@media (max-width: 760px)', '.tour-rail button');
       expect(mobileButton).toContain('white-space: nowrap');
     }
+  });
+
+  it('keeps support pages and tool accordion rows stacked on narrow screens', () => {
+    const css = readWebStylesheet();
+    const supportRow = cssRule(css, '.tool-row, .evidence-item');
+    const mobileSupportRow = cssRuleInBlock(css, '@media (max-width: 760px)', '.tool-row, .evidence-item');
+    const mobileToolHeader = cssRuleInBlock(css, '@media (max-width: 760px)', '.tool-accordion-trigger, .tool-call-row-header');
+    const mobileActions = cssRuleInBlock(css, '@media (max-width: 760px)', '.actions');
+    const mobileDemoActions = cssRuleInBlock(css, '@media (max-width: 760px)', '.demo-mode-actions');
+
+    expect(supportRow).toContain('min-width: 0;');
+    expect(supportRow).toContain('align-items: flex-start;');
+    expect(cssRule(css, '.tool-row strong, .evidence-item strong')).toContain('overflow-wrap: anywhere;');
+    expect(mobileSupportRow).toContain('flex-direction: column;');
+    expect(mobileSupportRow).toContain('align-items: stretch;');
+    expect(mobileToolHeader).toContain('flex-direction: column;');
+    expect(mobileToolHeader).toContain('align-items: stretch;');
+    expect(mobileActions).toContain('flex-direction: column;');
+    expect(mobileDemoActions).toContain('flex-direction: column;');
+    expect(mobileDemoActions).toContain('align-items: stretch;');
+  });
+
+  it('keeps Settings form controls shrinkable and safe-area aware on mobile', () => {
+    const css = readWebStylesheet();
+    const settingsForm = cssRule(css, '.settings-form');
+    const formLabel = cssRule(css, '.form-grid label');
+    const formControls = cssRule(css, '.form-grid input, .form-grid select');
+    const mobilePage = cssRuleInBlock(css, '@media (max-width: 760px)', '.page');
+
+    expect(settingsForm).toContain('min-width: 0;');
+    expect(formLabel).toContain('min-width: 0;');
+    expect(formControls).toContain('min-width: 0;');
+    expect(mobilePage).toContain('env(safe-area-inset-right)');
+    expect(mobilePage).toContain('env(safe-area-inset-bottom)');
+    expect(mobilePage).toContain('env(safe-area-inset-left)');
+  });
+
+  it('sizes Product Tour with dynamic viewport height and safe-area padding', () => {
+    const css = readWebStylesheet();
+    const backdrop = cssRule(css, '.tour-backdrop');
+    const productTour = cssRule(css, '.product-tour');
+    const mobileBackdrop = cssRuleInBlock(css, '@media (max-width: 760px)', '.tour-backdrop');
+    const mobileProductTour = cssRuleInBlock(css, '@media (max-width: 760px)', '.product-tour');
+
+    expect(backdrop).toContain('env(safe-area-inset-top)');
+    expect(backdrop).toContain('env(safe-area-inset-bottom)');
+    expect(productTour).toContain('100dvh');
+    expect(productTour).toContain('env(safe-area-inset-bottom)');
+    expect(css).toContain('@supports not (height: 100dvh)');
+    expect(mobileBackdrop).toContain('env(safe-area-inset-left)');
+    expect(mobileProductTour).toContain('100dvh');
+    expect(mobileProductTour).toContain('100vw');
+    expect(mobileProductTour).toContain('env(safe-area-inset-right)');
+    expect(mobileProductTour).toContain('overflow-y: auto;');
+  });
+
+  it('keeps narrow mobile content from forcing page-level horizontal overflow', () => {
+    const css = readWebStylesheet();
+    const mobileLayoutCaps = cssRuleInBlock(css, '@media (max-width: 760px)', '.page,\n  .chat-column,\n  .support-panel,\n  .card,\n  .message,\n  .demo-mode-panel,\n  .settings-stack,\n  .settings-form,\n  .status-card,\n  .setup-guide,\n  .tool-accordion,\n  .product-tour,\n  .tour-content,\n  .tour-rail');
+    const button = cssRule(css, '.btn');
+    const mobileTextWrap = cssRuleInBlock(css, '@media (max-width: 760px)', '.status-card h3,\n  .status-card p,\n  .page-heading p,\n  .support-panel p,\n  .setup-step p,\n  .setup-detail li,\n  .tour-content h2,\n  .tour-content p,\n  .tour-preview-card strong');
+    const mobileTourHeading = cssRuleInBlock(css, '@media (max-width: 760px)', '.tour-content h2,\n  .tour-content p');
+    const mobileTourClose = cssRuleInBlock(css, '@media (max-width: 760px)', '.tour-close');
+
+    expect(button).toContain('min-width: 0;');
+    expect(button).toContain('white-space: normal;');
+    expect(mobileLayoutCaps).toContain('max-width: 100%;');
+    expect(mobileLayoutCaps).toContain('min-width: 0;');
+    expect(mobileTextWrap).toContain('overflow-wrap: anywhere;');
+    expect(mobileTourHeading).toContain('word-break: normal;');
+    expect(mobileTourClose).toContain('flex: 0 0 40px;');
   });
 });

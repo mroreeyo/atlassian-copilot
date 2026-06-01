@@ -26,7 +26,7 @@ export function AppShell() {
   }, [initializeDemoMode]);
 
   return (
-    <div className="app-shell min-h-screen">
+    <div className="app-shell">
       <aside className="sidebar" aria-label="기본 탐색" aria-hidden={isTourOpen ? true : undefined}>
         <div className="brand">
           <strong>Atlassian 코파일럿</strong>
