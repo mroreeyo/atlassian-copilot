@@ -1,6 +1,6 @@
 # Atlassian Copilot
 
-Jira와 Confluence 업무를 대화로 조회하고 정리하는 다크 퍼스트 엔터프라이즈 코파일럿입니다. 브라우저는 항상 Broker API와만 통신하며, Jira/Confluence 조회와 LLM 호출은 Broker에서만 실행됩니다. 댓글 작성이나 변경 요청 같은 쓰기 작업은 실행 전에 반드시 작업 검토 단계를 거칩니다.
+Jira와 Confluence 업무를 대화로 조회하고 정리하는 코파일럿입니다. 브라우저는 항상 Broker(중개서버) API와만 통신하며, Jira/Confluence 조회와 LLM 호출은 Broker(중개서버)에서만 실행됩니다. 댓글 작성이나 변경 요청 같은 쓰기 작업은 실행 전에 반드시 작업 검토 단계를 거칩니다.
 
 ## 구현된 기능
 
