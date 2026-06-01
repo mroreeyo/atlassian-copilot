@@ -13,7 +13,7 @@ export function isReadOnlyTool(tool: ToolName): boolean {
 
 export function assertReadOnlyTool(tool: ToolName): void {
   if (!isReadOnlyTool(tool)) {
-    throw new Error(`Tool ${tool} is not allowed in read-only MCP mode.`);
+    throw new Error(`Tool ${tool} is not allowed in read-only mode.`);
   }
 }
 

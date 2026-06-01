@@ -182,7 +182,7 @@ describe('action guard', () => {
     expect(decideActionExecution({ tool: 'jira_delete_issue', mode: 'sandbox-write', approved: true, sandboxTarget: true })).toMatchObject({ allowed: false, executes: false });
   });
 
-  it('records P0/P1 write approvals without execution', () => {
+  it('records staged write approvals without execution', () => {
     expect(decideActionExecution({ tool: 'jira_add_comment', mode: 'readonly', approved: true })).toMatchObject({ allowed: true, executes: false });
   });
 
@@ -190,7 +190,7 @@ describe('action guard', () => {
     expect(decideActionExecution({ tool: 'jira_add_comment', mode: 'sandbox-write', approved: true })).toMatchObject({ allowed: true, executes: true });
   });
 
-  it('allows read-only tools to execute through Broker', () => {
+  it('allows read-only tools to execute through the server path', () => {
     expect(decideActionExecution({ tool: 'jira_search', mode: 'readonly' })).toMatchObject({ allowed: true, executes: true });
   });
 });

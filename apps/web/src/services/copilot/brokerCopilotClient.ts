@@ -39,14 +39,14 @@ import {
 const brokerBaseUrl = import.meta.env.VITE_BROKER_BASE_URL ?? '';
 
 function brokerUrl(path: string): string {
-  if (/^https?:\/\//i.test(path)) throw new Error('Broker 응답은 상대 /api URL만 사용할 수 있습니다.');
-  if (!path.startsWith('/api/')) throw new Error(`잘못된 Broker 경로: ${path}`);
+  if (/^https?:\/\//i.test(path)) throw new Error('서버 응답은 상대 /api URL만 사용할 수 있습니다.');
+  if (!path.startsWith('/api/')) throw new Error(`잘못된 서버 경로: ${path}`);
   return `${brokerBaseUrl}${path}`;
 }
 
 function streamBrokerUrl(path: string): string {
   if (!/^\/api\/copilot\/runs\/[^/?#/]+\/stream$/.test(path)) {
-    throw new Error(`Invalid Broker stream URL: ${path}`);
+    throw new Error(`잘못된 응답 스트림 경로: ${path}`);
   }
   return brokerUrl(path);
 }

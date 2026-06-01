@@ -23,7 +23,7 @@ export const RunCreateRequestSchema = z.object({
 
 export const RunCreateResponseSchema = z.object({
   runId: z.string().min(1),
-  streamUrl: z.string().regex(/^\/api\/copilot\/runs\/[^/?#/]+\/stream$/, 'streamUrl must be a relative Broker stream endpoint')
+  streamUrl: z.string().regex(/^\/api\/copilot\/runs\/[^/?#/]+\/stream$/, 'streamUrl must be a relative copilot stream endpoint')
 });
 
 export const ToolActionScopeSchema = z.object({

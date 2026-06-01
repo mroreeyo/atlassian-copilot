@@ -11,9 +11,9 @@ import { saveAtlassianSettings, saveLlmSettings, testAtlassianSettings, testLlmS
 vi.mock('../services/copilot/brokerCopilotClient', () => ({
   getHistory: async () => ({
     runs: [
-      { ...mockHistory.runs[0], title: 'Broker 제공 기록', status: 'completed' },
-      { ...mockHistory.runs[0], runId: 'run_failed', title: '실패한 Broker 실행', status: 'failed' },
-      { ...mockHistory.runs[0], runId: 'run_running', title: '실행 중인 Broker 실행', status: 'running' }
+      { ...mockHistory.runs[0], title: '저장된 답변 기록', status: 'completed' },
+      { ...mockHistory.runs[0], runId: 'run_failed', title: '실패한 답변 실행', status: 'failed' },
+      { ...mockHistory.runs[0], runId: 'run_running', title: '실행 중인 답변 실행', status: 'running' }
     ]
   }),
   getSettingsStatus: async () => ({ ...mockSettingsStatus, mode: 'mock' }),
@@ -126,15 +126,15 @@ describe('support pages', () => {
     vi.clearAllMocks();
   });
 
-  it('renders History from the Broker client with semantic status tones', async () => {
+  it('renders History with semantic status tones', async () => {
     renderWithQuery(<HistoryPage />);
-    expect(await screen.findByText('Broker 제공 기록')).toBeInTheDocument();
+    expect(await screen.findByText('저장된 답변 기록')).toBeInTheDocument();
     expect(screen.getByText('완료')).toHaveClass('success');
     expect(screen.getByText('실패')).toHaveClass('danger');
     expect(screen.getByText('실행 중')).toHaveClass('ai');
   });
 
-  it('renders Settings from the Broker client with only connection status cards', async () => {
+  it('renders Settings with only connection status cards', async () => {
     renderWithQuery(<SettingsPage />);
     const statusGrid = await screen.findByLabelText('연결 상태');
     expect(within(statusGrid).getByText('Atlassian 연결')).toBeInTheDocument();
@@ -150,7 +150,22 @@ describe('support pages', () => {
     expect(screen.queryByText(/브라우저 env|localStorage|프론트엔드 코드/)).not.toBeInTheDocument();
   });
 
-  it('saves Atlassian personal settings through the Broker and clears the token field', async () => {
+  it('guides new users from demo mode to real Atlassian and answer-provider setup', async () => {
+    renderWithQuery(<SettingsPage />);
+
+    const guide = await screen.findByRole('region', { name: '처음 설정 안내' });
+    expect(guide).toHaveTextContent('실제 업무 자료로 답변하려면 두 가지만 연결하세요');
+    expect(guide).toHaveTextContent('시연 모드로 흐름을 먼저 확인');
+    expect(guide).toHaveTextContent('Atlassian 연결');
+    expect(guide).toHaveTextContent('답변 제공자 연결');
+    expect(guide).toHaveTextContent('연결 테스트 후 질문');
+    expect(within(guide).getByText('Atlassian 연결 값 확인하기')).toBeInTheDocument();
+    expect(within(guide).getByText('답변 제공자 키 준비하기')).toBeInTheDocument();
+    expect(within(guide).getByRole('link', { name: /시연 화면으로 돌아가기|Copilot에서 질문하기/ })).toHaveAttribute('href', '/copilot');
+    expect(guide).not.toHaveTextContent(/Broker|MCP|P0|아코디언|스키마|라우트/);
+  });
+
+  it('saves Atlassian personal settings and clears the token field', async () => {
     const user = userEvent.setup();
     renderWithQuery(<SettingsPage />);
 
@@ -200,7 +215,7 @@ describe('support pages', () => {
     expect(saveAtlassianSettings).not.toHaveBeenCalled();
   });
 
-  it('saves and tests personal LLM settings through the Broker and clears the key field', async () => {
+  it('saves and tests personal LLM settings and clears the key field', async () => {
     const user = userEvent.setup();
     renderWithQuery(<SettingsPage />);
 

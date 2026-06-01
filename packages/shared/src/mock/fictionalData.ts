@@ -51,7 +51,7 @@ export const fictionalSources: AtlassianSource[] = [
     sourceType: 'jira',
     origin: 'demo',
     title: 'OpenRouter 모델 선택값 저장 후 재진입 시 초기화됨',
-    summary: '설정 화면에서 선택한 모델이 새로고침 뒤 기본값으로 보이는 문제입니다. 실제 키는 노출되지 않고 Broker 저장 상태만 확인하면 됩니다.',
+    summary: '설정 화면에서 선택한 모델이 새로고침 뒤 기본값으로 보이는 문제입니다. 실제 키는 노출되지 않고 서버 저장 상태만 확인하면 됩니다.',
     relevanceScore: 87,
     url: 'https://example.atlassian.net/browse/AKC-136',
     actionId: 'act_001',

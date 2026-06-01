@@ -145,7 +145,7 @@ describe('CopilotPage', () => {
     expect(suggestionRequests).toBe(1);
   });
 
-  it('does not submit an empty prompt and sends only typed Broker payloads', async () => {
+  it('does not submit an empty prompt and sends only typed run payloads', async () => {
     const user = userEvent.setup();
     renderPage();
     expect(sendButton()).toBeDisabled();
@@ -170,6 +170,10 @@ describe('CopilotPage', () => {
     await waitFor(() => expect(createRunInputs).toHaveLength(1));
     expect(createRunInputs[0]?.mode).toBe('mock');
     expect(createRunInputs[0]?.message).toBe('나에게 할당된 JIRA 이슈를 조회해줘.');
+    expect(await screen.findByText('시연 답변을 확인했습니다')).toBeInTheDocument();
+    expect(screen.getByText(/실제 Atlassian 연결과 답변 제공자/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '실제 연결 설정하기' })).toHaveAttribute('href', '/settings');
+    expect(screen.getByRole('button', { name: '시연 다시 실행' })).toBeInTheDocument();
   });
 
   it('starts new project entries with demo mode enabled by default', async () => {
@@ -188,7 +192,7 @@ describe('CopilotPage', () => {
   });
 
 
-  it('renders the full P0 mock flow inside chat', async () => {
+  it('renders the full mock flow inside chat', async () => {
     const user = userEvent.setup();
     renderPage();
     await submitPrompt(user);

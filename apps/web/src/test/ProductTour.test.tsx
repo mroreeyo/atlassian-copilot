@@ -108,6 +108,15 @@ describe('ProductTour', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 
+  it('keeps an out-of-range saved step inside the available tour steps', async () => {
+    useProductTourStore.setState({ currentStep: 99, hasCompleted: false, isOpen: true });
+    render(<ProductTour />);
+
+    expect(await screen.findByLabelText('전체 4단계 중 4단계')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toHaveTextContent('4 · 연결과 기록');
+    expect(useProductTourStore.getState().currentStep).toBe(3);
+  });
+
   it('closes with Escape and keeps keyboard focus inside while open', async () => {
     const user = userEvent.setup();
     renderOpenTour();

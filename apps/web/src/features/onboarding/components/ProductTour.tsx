@@ -56,11 +56,12 @@ export function ProductTour() {
   const previousStep = useProductTourStore((state) => state.previousStep);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const previousActiveElement = useRef<Element | null>(null);
-  const fallbackStep = productTourSteps[0]!;
-  const step = productTourSteps[currentStep] ?? fallbackStep;
   const lastStep = productTourSteps.length - 1;
-  const titleId = useMemo(() => `product-tour-title-${currentStep}`, [currentStep]);
-  const descriptionId = useMemo(() => `product-tour-description-${currentStep}`, [currentStep]);
+  const safeCurrentStep = Math.min(Math.max(currentStep, 0), lastStep);
+  const fallbackStep = productTourSteps[0]!;
+  const step = productTourSteps[safeCurrentStep] ?? fallbackStep;
+  const titleId = useMemo(() => `product-tour-title-${safeCurrentStep}`, [safeCurrentStep]);
+  const descriptionId = useMemo(() => `product-tour-description-${safeCurrentStep}`, [safeCurrentStep]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -74,6 +75,11 @@ export function ProductTour() {
     const element = previousActiveElement.current;
     if (element instanceof HTMLElement && document.contains(element)) element.focus();
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || currentStep === safeCurrentStep) return;
+    goToStep(safeCurrentStep);
+  }, [currentStep, goToStep, isOpen, safeCurrentStep]);
 
   if (!isOpen) return null;
 
@@ -117,7 +123,7 @@ export function ProductTour() {
             <ol>
               {productTourSteps.map((tourStep, index) => (
                 <li key={tourStep.title}>
-                  <button type="button" className={index === currentStep ? 'active' : ''} aria-current={index === currentStep ? 'step' : undefined} onClick={() => goToStep(index)}>
+                  <button type="button" className={index === safeCurrentStep ? 'active' : ''} aria-current={index === safeCurrentStep ? 'step' : undefined} onClick={() => goToStep(index)}>
                     <span>{index + 1}</span>
                     {tourStep.eyebrow.replace(/^\d · /, '')}
                   </button>
@@ -143,15 +149,15 @@ export function ProductTour() {
               {step.checklist.map((item) => <li key={item}>{item}</li>)}
             </ul>
 
-            <div className="tour-progress" aria-label={`전체 ${productTourSteps.length}단계 중 ${currentStep + 1}단계`}>
-              {productTourSteps.map((tourStep, index) => <span key={tourStep.title} className={index <= currentStep ? 'filled' : ''} />)}
+            <div className="tour-progress" aria-label={`전체 ${productTourSteps.length}단계 중 ${safeCurrentStep + 1}단계`}>
+              {productTourSteps.map((tourStep, index) => <span key={tourStep.title} className={index <= safeCurrentStep ? 'filled' : ''} />)}
             </div>
 
             <div className="tour-actions">
               <button type="button" className="btn subtle" onClick={completeTour}>건너뛰기</button>
               <div>
-                <button type="button" className="btn subtle" onClick={previousStep} disabled={currentStep === 0}>이전</button>
-                {currentStep === lastStep ? (
+                <button type="button" className="btn subtle" onClick={previousStep} disabled={safeCurrentStep === 0}>이전</button>
+                {safeCurrentStep === lastStep ? (
                   <button type="button" className="btn primary" onClick={completeTour}>시작하기</button>
                 ) : (
                   <button type="button" className="btn primary" onClick={() => nextStep(lastStep)}>다음</button>

@@ -280,7 +280,7 @@ describe('Broker Copilot client', () => {
         for await (const _event of streamCopilotEvents(url)) {
           // no-op
         }
-      }).rejects.toThrow('Invalid Broker stream URL');
+      }).rejects.toThrow('잘못된 응답 스트림 경로');
     }
   });
 });

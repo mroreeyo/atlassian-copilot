@@ -33,7 +33,7 @@ describe('route freeze', () => {
     expect(await screen.findByRole('heading', { name: 'Atlassian 코파일럿' })).toBeInTheDocument();
   });
 
-  it('keeps P0 navigation limited to Copilot, History, and Settings', () => {
+  it('keeps primary navigation limited to Copilot, History, and Settings', () => {
     renderApp('/copilot');
     expect(screen.getByRole('link', { name: 'Atlassian 코파일럿' })).toHaveAttribute('href', '/copilot');
     expect(screen.getByRole('link', { name: '기록' })).toHaveAttribute('href', '/history');

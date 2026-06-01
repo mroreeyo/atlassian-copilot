@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { ChatComposer } from '../features/copilot/components/ChatComposer';
 import { ChatMessage } from '../features/copilot/components/ChatMessage';
 import { ContextPanel } from '../features/copilot/components/ContextPanel';
@@ -13,14 +14,20 @@ const contextPanelId = 'copilot-context-panel';
 
 export function CopilotPage() {
   const { messages, runViewsByMessageId, activeRunView, isStreaming, submitPrompt, resolveActionReview } = useCopilotRun();
-  const { contextPanelOpen, toggleContextPanel, demoMode, toggleDemoMode } = useUiStore();
+  const { contextPanelOpen, toggleContextPanel, demoMode, setDemoMode, toggleDemoMode } = useUiStore();
   const suggestionsQuery = useQuery({ queryKey: ['copilot-suggestions'], queryFn: getCopilotSuggestions, staleTime: 5 * 60 * 1000 });
   const settingsQuery = useQuery({ queryKey: ['settings-status'], queryFn: getSettingsStatus, staleTime: 60 * 1000 });
   const suggestions = suggestionsQuery.data?.suggestions ?? [];
   const settings = settingsQuery.data;
   const demoRecommended = Boolean(settings && (!settings.atlassian.configured || !settings.llm.configured || settings.llm.provider === 'mock'));
   const demoPrompt = '나에게 할당된 JIRA 이슈를 조회해줘.';
+  const demoRunCompleted = activeRunView.status === 'completed' && activeRunView.sources.some((source) => source.origin === 'demo');
+  const showDemoGuidance = demoRecommended || demoMode || demoRunCompleted;
   const submitWithMode = (prompt: string) => void submitPrompt(prompt, demoMode ? 'mock' : undefined);
+  const startDemoRun = () => {
+    setDemoMode(true);
+    void submitPrompt(demoPrompt, 'mock');
+  };
   return (
     <div className="page">
       <div className={contextPanelOpen ? 'copilot-grid' : 'copilot-grid collapsed'}>
@@ -30,19 +37,23 @@ export function CopilotPage() {
             <button className="btn subtle" onClick={toggleContextPanel} aria-expanded={contextPanelOpen} aria-controls={contextPanelId}>{contextPanelOpen ? '상세 정보 숨기기' : '상세 정보 보기'}</button>
           </div>
           <MiniInsightBar />
-          {demoRecommended || demoMode ? (
+          {showDemoGuidance ? (
             <section className={demoMode ? 'demo-mode-panel active' : 'demo-mode-panel'} aria-label="시연 모드">
-              <div>
-                <strong>{demoMode ? '시연 모드가 켜져 있습니다' : '설정 없이 먼저 시연해 볼 수 있습니다'}</strong>
+              <div className="demo-mode-copy">
+                <strong>{demoRunCompleted ? '시연 답변을 확인했습니다' : demoMode ? '시연 모드가 켜져 있습니다' : '설정 없이 먼저 시연해 볼 수 있습니다'}</strong>
                 <p className="muted">실제 계정 연결 없이 가상의 Jira 이슈와 Confluence 문서로 답변 흐름을 보여줍니다. 브라우저에 개인 키를 저장하지 않고 실제 데이터와 분리됩니다.</p>
+                {demoRunCompleted ? (
+                  <p className="demo-setup-next">다음 단계로 설정에서 실제 Atlassian 연결과 답변 제공자를 저장한 뒤 같은 질문을 실제 업무 자료로 다시 실행해 보세요.</p>
+                ) : null}
               </div>
               <div className="demo-mode-actions">
                 <button className={demoMode ? 'btn primary' : 'btn subtle'} type="button" onClick={toggleDemoMode} aria-pressed={demoMode}>
                   {demoMode ? '시연 모드 끄기' : '시연 모드 켜기'}
                 </button>
-                <button className="btn subtle" type="button" disabled={isStreaming} onClick={() => void submitPrompt(demoPrompt, 'mock')}>
-                  시연 질문 실행
+                <button className="btn subtle" type="button" disabled={isStreaming} onClick={startDemoRun}>
+                  {demoRunCompleted ? '시연 다시 실행' : '1분 시연 시작'}
                 </button>
+                <Link className={demoRunCompleted ? 'btn primary' : 'btn subtle'} to="/settings">실제 연결 설정하기</Link>
               </div>
             </section>
           ) : null}

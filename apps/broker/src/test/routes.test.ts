@@ -12,6 +12,7 @@ import { clearLlmModelCatalogCache } from '../services/llm/modelCatalog.js';
 
 let app: ReturnType<typeof buildApp>;
 let stateDir: string;
+const routeHookTimeoutMs = 60_000;
 const originalEnv = {
   AKC_BROKER_STATE_DIR: process.env.AKC_BROKER_STATE_DIR,
   ATLASSIAN_URL: process.env.ATLASSIAN_URL,
@@ -46,7 +47,7 @@ beforeAll(() => {
   delete process.env.ANTHROPIC_MODEL;
   delete process.env.AKC_ENABLE_LIVE_ANTHROPIC;
   app = buildApp();
-}, 30_000);
+}, routeHookTimeoutMs);
 
 afterEach(() => {
   clearStoredRunsForTests();
@@ -87,7 +88,7 @@ afterAll(async () => {
   restoreEnv('ANTHROPIC_MODEL', originalEnv.ANTHROPIC_MODEL);
   restoreEnv('AKC_ENABLE_LIVE_ANTHROPIC', originalEnv.AKC_ENABLE_LIVE_ANTHROPIC);
   rmSync(stateDir, { recursive: true, force: true });
-}, 30_000);
+}, routeHookTimeoutMs);
 
 async function createRun(app: ReturnType<typeof buildApp>, message = 'hello') {
   const created = await app.inject({ method: 'POST', url: '/api/copilot/runs', payload: { message, mode: 'readonly' } });
@@ -117,7 +118,7 @@ function assignedIssueSearchResponse(): Response {
         fields: {
           summary: '나에게 할당된 작업',
           status: { name: 'To Do' },
-          assignee: { displayName: 'Broker User' },
+          assignee: { displayName: 'Demo User' },
           priority: { name: 'High' },
           issuetype: { name: 'Task' },
           updated: '2026-05-30T01:00:00.000+0000',
@@ -153,13 +154,13 @@ function parseSseDataFrames(body: string): unknown[] {
 }
 
 describe('broker routes', () => {
-  it('creates a copilot run and exposes a Broker stream URL', async () => {
+  it('creates a copilot run and exposes a stream URL', async () => {
     const response = await app.inject({ method: 'POST', url: '/api/copilot/runs', payload: { message: 'hello', mode: 'readonly' } });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ streamUrl: expect.stringContaining('/api/copilot/runs/') });
   }, 30_000);
 
-  it('streams canonical SSE events from the Broker endpoint', async () => {
+  it('streams canonical SSE events from the server endpoint', async () => {
     const created = await app.inject({ method: 'POST', url: '/api/copilot/runs', payload: { message: 'hello', mode: 'readonly' } });
     const stream = await app.inject({ method: 'GET', url: created.json<{ streamUrl: string }>().streamUrl });
     expect(stream.statusCode).toBe(200);
@@ -193,7 +194,7 @@ describe('broker routes', () => {
     expect(response.body).not.toContain('token_');
   }, 30_000);
 
-  it('streams real read-only Jira evidence for assigned-issues prompts through the Broker', async () => {
+  it('streams real read-only Jira evidence for assigned-issues prompts through the server path', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(assignedIssueSearchResponse());
     await saveAtlassianSettingsForAssignedIssues();
     const created = await app.inject({ method: 'POST', url: '/api/copilot/runs', payload: { message: '나에게 할당된 이슈들을 조회해줘', mode: 'readonly' } });
@@ -268,6 +269,24 @@ describe('broker routes', () => {
     expect(stream.body).toContain('event: run.completed');
     expect(stream.body).not.toContain('OPENAI_API_KEY');
     expect(stream.body).not.toContain('ATLASSIAN_API_TOKEN');
+    expect(fetchMock).not.toHaveBeenCalled();
+  }, 30_000);
+
+  it('keeps mock mode isolated from write prompts and external providers', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/copilot/runs',
+      payload: { message: 'SCRUM-7에 댓글로 "검토 완료" 남겨줘', mode: 'mock' }
+    });
+    const stream = await app.inject({ method: 'GET', url: created.json<{ streamUrl: string }>().streamUrl });
+
+    expect(stream.statusCode).toBe(200);
+    expect(stream.body).toContain('데모 모드입니다');
+    expect(stream.body).toContain('"origin":"demo"');
+    expect(stream.body).not.toContain('event: action_review.required');
+    expect(stream.body).not.toContain('jira_add_comment');
+    expect(stream.body).toContain('event: run.completed');
     expect(fetchMock).not.toHaveBeenCalled();
   }, 30_000);
 
@@ -355,7 +374,7 @@ describe('broker routes', () => {
     }));
   }, 30_000);
 
-  it('executes an approved Jira comment through the Broker in sandbox-write mode', async () => {
+  it('executes an approved Jira comment through the server path in sandbox-write mode', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ id: '10001' }), {
       status: 201,
       headers: { 'Content-Type': 'application/json' }
@@ -396,6 +415,30 @@ describe('broker routes', () => {
       risk: 'write',
       approvalStatus: 'approved',
       executionResult: 'executed'
+    }));
+  }, 30_000);
+
+  it('does not execute a sandbox-write action when approval is declined', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    await saveAtlassianSettingsForAssignedIssues();
+    const created = await app.inject({ method: 'POST', url: '/api/copilot/runs', payload: { message: 'SCRUM-7에 댓글로 "검토 완료" 남겨줘', mode: 'sandbox-write' } });
+    const runId = created.json<{ runId: string }>().runId;
+    const actionId = `${runId}_act_jira_comment`;
+
+    const approve = await app.inject({
+      method: 'POST',
+      url: `/api/copilot/actions/${actionId}/approve`,
+      payload: { approved: false, inputPreview: { comment: '검토 완료' } }
+    });
+
+    expect(approve.statusCode).toBe(400);
+    expect(approve.json()).toMatchObject({ status: 'blocked', executed: false });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(listAuditEntries()).toContainEqual(expect.objectContaining({
+      actionId,
+      risk: 'write',
+      approvalStatus: 'blocked',
+      executionResult: 'blocked'
     }));
   }, 30_000);
 
@@ -568,7 +611,7 @@ describe('broker routes', () => {
     });
   }, 30_000);
 
-  it('clears personal Atlassian settings from the Broker', async () => {
+  it('clears personal Atlassian settings from the server', async () => {
     await app.inject({
       method: 'POST',
       url: '/api/settings/atlassian',
@@ -637,7 +680,7 @@ describe('broker routes', () => {
     expect(clear.body).not.toContain('sk-openai-personal-secret');
   }, 30_000);
 
-  it('tests saved LLM settings through the Broker and stores sanitized validation state', async () => {
+  it('tests saved LLM settings through the server and stores sanitized validation state', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ id: 'resp_test' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     await app.inject({ method: 'POST', url: '/api/settings/llm', payload: { provider: 'openai', apiKey: 'sk-openai-personal-secret', enabled: true } });
 
@@ -736,7 +779,7 @@ describe('broker routes', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   }, 30_000);
 
-  it('fetches and caches normalized OpenAI model catalogs through the Broker only', async () => {
+  it('fetches and caches normalized OpenAI model catalogs through the server only', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
       object: 'list',
       data: [

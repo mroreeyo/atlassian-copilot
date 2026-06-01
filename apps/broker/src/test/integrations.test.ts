@@ -17,14 +17,14 @@ function streamFromText(text: string): ReadableStream<Uint8Array> {
 }
 
 describe('broker integration guards', () => {
-  it('skips MCP smoke safely when credentials are absent', async () => {
+  it('skips Atlassian smoke safely when credentials are absent', async () => {
     const result = await runReadOnlyMcpTool('jira_search', 'test', {});
     expect(result.status).toBe('skipped');
     expect(result.sources).toHaveLength(0);
     expect(result.reason).toContain('Atlassian 연결 정보가 없어 조회를 실행하지 않았습니다');
   });
 
-  it('uses Broker-only Jira read transport when Atlassian credentials are present', async () => {
+  it('uses server-side Jira read transport when Atlassian credentials are present', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       issues: [
         {
@@ -64,7 +64,7 @@ describe('broker integration guards', () => {
     vi.restoreAllMocks();
   });
 
-  it('uses Broker-only Confluence read transport and returns canonical page URLs', async () => {
+  it('uses server-side Confluence read transport and returns canonical page URLs', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       results: [
         {
@@ -218,7 +218,7 @@ describe('broker integration guards', () => {
     expect(events.map((event) => event.type)).toContain('llm.completed');
   });
 
-  it('keeps live OpenAI disabled unless the explicit non-P0 gate is enabled', async () => {
+  it('keeps live OpenAI disabled unless the explicit non-default gate is enabled', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch');
     const events = [];
     for await (const event of streamGroundedSummary('test', { OPENAI_API_KEY: 'fake' })) events.push(event);

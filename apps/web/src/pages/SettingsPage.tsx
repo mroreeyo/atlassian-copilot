@@ -9,6 +9,7 @@ import {
   type LlmModelOption,
   type LlmProvider,
   type LlmProviderModelsResponse,
+  type SettingsStatus,
   type LlmSettingsRequest
 } from '@akc/shared';
 import { ErrorState, LoadingState } from '../components/ui/StateViews';
@@ -176,6 +177,7 @@ export function SettingsPage() {
         {status ? (
           <>
             <StatusGrid status={status} />
+            <SetupGuide status={status} />
             <div className="settings-stack">
               <form
                 className="settings-form"
@@ -393,6 +395,98 @@ function SettingsNotice({ notice }: { notice: Notice | null }) {
       {notice.text}
     </p>
   ) : null;
+}
+
+function SetupGuide({ status }: { status: SettingsStatus }) {
+  const atlassianReady = status.atlassian.connected || status.mcpConnected;
+  const atlassianSaved = status.atlassian.configured;
+  const answerProviderReady = status.llm.connected && status.llm.enabled;
+  const answerProviderSaved = status.llm.configured && status.llm.enabled && status.llm.provider !== 'mock';
+  const readyForRealUse = atlassianReady && answerProviderReady;
+
+  return (
+    <section className="setup-guide" aria-label="처음 설정 안내">
+      <div className="setup-guide-hero">
+        <div>
+          <span className="eyebrow">처음 설정 안내</span>
+          <h2>실제 업무 자료로 답변하려면 두 가지만 연결하세요</h2>
+          <p>
+            시연 모드로 흐름을 먼저 확인한 뒤, Atlassian과 답변 제공자를 연결하면 같은 질문을 내 Jira 이슈와 Confluence 문서로 실행할 수 있습니다.
+          </p>
+        </div>
+        <a className={readyForRealUse ? 'btn primary' : 'btn subtle'} href="/copilot">
+          {readyForRealUse ? 'Copilot에서 질문하기' : '시연 화면으로 돌아가기'}
+        </a>
+      </div>
+
+      <ol className="setup-steps" aria-label="설정 순서">
+        <SetupStep
+          index={1}
+          title="Atlassian 연결"
+          state={atlassianReady ? 'done' : atlassianSaved ? 'current' : 'todo'}
+          text="회사 Atlassian 주소, 계정 이메일, API 토큰을 입력하고 조회할 Jira 프로젝트와 Confluence 공간을 제한합니다."
+        />
+        <SetupStep
+          index={2}
+          title="답변 제공자 연결"
+          state={answerProviderReady ? 'done' : answerProviderSaved ? 'current' : 'todo'}
+          text="OpenAI, Claude, OpenRouter 중 하나를 선택하고 해당 서비스에서 발급한 API 키와 사용할 모델을 저장합니다."
+        />
+        <SetupStep
+          index={3}
+          title="연결 테스트 후 질문"
+          state={readyForRealUse ? 'done' : 'todo'}
+          text="두 연결을 저장한 뒤 각각 테스트를 통과하면 Copilot에서 실제 업무 질문을 바로 실행할 수 있습니다."
+        />
+      </ol>
+
+      <div className="setup-detail-grid">
+        <details className="setup-detail">
+          <summary>Atlassian 연결 값 확인하기</summary>
+          <ul>
+            <li>사이트 URL은 보통 <code>https://회사명.atlassian.net</code> 형식입니다.</li>
+            <li>이메일은 Jira와 Confluence에 로그인할 때 사용하는 Atlassian 계정 이메일입니다.</li>
+            <li>API 토큰은 Atlassian 계정 보안 메뉴에서 새로 발급한 값을 붙여넣습니다.</li>
+            <li>프로젝트와 공간 키는 쉼표로 구분합니다. 예: <code>AKC,NFS</code></li>
+          </ul>
+        </details>
+        <details className="setup-detail">
+          <summary>답변 제공자 키 준비하기</summary>
+          <ul>
+            <li>ChatGPT 또는 Claude 개인 구독만으로는 연결되지 않습니다. 각 서비스의 개발자 콘솔에서 API 키를 발급해야 합니다.</li>
+            <li>OpenRouter를 쓰면 여러 모델을 한 곳에서 고르고, 모델 목록을 불러와 선택할 수 있습니다.</li>
+            <li>키를 저장한 뒤 연결 테스트까지 통과해야 실제 답변 생성에 사용할 수 있습니다.</li>
+          </ul>
+        </details>
+      </div>
+    </section>
+  );
+}
+
+function SetupStep({
+  index,
+  title,
+  state,
+  text
+}: {
+  index: number;
+  title: string;
+  state: 'done' | 'current' | 'todo';
+  text: string;
+}) {
+  const label = state === 'done' ? '완료' : state === 'current' ? '확인 필요' : '대기';
+  return (
+    <li className={`setup-step ${state}`}>
+      <span className="setup-step-index" aria-hidden="true">{index}</span>
+      <div>
+        <div className="setup-step-title">
+          <strong>{title}</strong>
+          <span>{label}</span>
+        </div>
+        <p>{text}</p>
+      </div>
+    </li>
+  );
 }
 
 function ModelCatalogField({
