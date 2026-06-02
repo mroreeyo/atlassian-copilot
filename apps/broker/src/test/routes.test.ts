@@ -120,11 +120,11 @@ type TestInjectOptions = {
   headers?: Record<string, string>;
 };
 
-function authInject(options: TestInjectOptions) {
-  return app.inject({
+async function authInject(options: TestInjectOptions) {
+  return await app.inject({
     ...options,
     headers: { cookie: authCookie, ...(options.headers ?? {}) }
-  });
+  } as Parameters<typeof app.inject>[0]);
 }
 
 async function createRun(app: ReturnType<typeof buildApp>, message = 'hello') {
