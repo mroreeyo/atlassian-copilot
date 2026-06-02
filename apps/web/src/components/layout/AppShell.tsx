@@ -1,10 +1,10 @@
 import { useEffect } from 'react';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { ProductTour } from '../../features/onboarding/components/ProductTour';
 import { authSessionQueryKey, useAuthSession } from '../../features/auth/useAuthSession';
 import { useProductTourStore } from '../../features/onboarding/stores/productTourStore';
-import { logout } from '../../services/copilot/brokerCopilotClient';
+import { authSessionQueryKey, getAuthSession, logout } from '../../services/auth/authClient';
 import { useUiStore } from '../../stores/uiStore';
 
 export function AppShell() {
@@ -17,12 +17,15 @@ export function AppShell() {
   const initializeTheme = useUiStore((state) => state.initializeTheme);
   const initializeDemoMode = useUiStore((state) => state.initializeDemoMode);
   const toggleThemeMode = useUiStore((state) => state.toggleThemeMode);
-  const session = useAuthSession();
+  const sessionQuery = useQuery({ queryKey: authSessionQueryKey, queryFn: getAuthSession, staleTime: 30_000 });
+  const user = sessionQuery.data?.user ?? null;
   const logoutMutation = useMutation({
     mutationFn: logout,
     onSuccess: () => {
-      queryClient.setQueryData(authSessionQueryKey, null);
-      navigate('/copilot');
+      queryClient.setQueryData(authSessionQueryKey, { user: null });
+      void queryClient.invalidateQueries({ queryKey: ['history'] });
+      void queryClient.invalidateQueries({ queryKey: ['settings-status'] });
+      navigate('/copilot', { replace: true });
     }
   });
 
@@ -65,6 +68,21 @@ export function AppShell() {
         </div>
         <div className="sidebar-helper">
           <p className="muted">질문하고, 참고한 항목을 확인하고, 필요한 변경은 실행 전에 검토합니다.</p>
+          {user ? (
+            <div className="auth-sidebar-card" aria-label="로그인 상태">
+              <span className="badge success">로그인됨</span>
+              <strong>{user.email}</strong>
+              <button className="theme-toggle-button" type="button" disabled={logoutMutation.isPending} onClick={() => logoutMutation.mutate()}>
+                {logoutMutation.isPending ? '로그아웃 중' : '로그아웃'}
+              </button>
+            </div>
+          ) : (
+            <div className="auth-sidebar-card" aria-label="로그인 안내">
+              <span className="badge warning">기록·설정 보호됨</span>
+              <NavLink className="btn primary" to="/login">로그인</NavLink>
+              <NavLink className="btn subtle" to="/signup">가입하기</NavLink>
+            </div>
+          )}
           <button className="theme-toggle-button" type="button" onClick={toggleThemeMode} aria-pressed={themeMode === 'light'}>
             {themeMode === 'dark' ? '밝은 화면으로 보기' : '어두운 화면으로 보기'}
           </button>

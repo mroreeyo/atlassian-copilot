@@ -2,10 +2,33 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mockHistory, mockSettingsStatus } from '@akc/shared/mock';
 import { App } from '../app/App';
 import { productTourStorageKey, useProductTourStore } from '../features/onboarding/stores/productTourStore';
+import { getAuthSession, login, logout, signup } from '../services/auth/authClient';
 import { themeStorageKey, useUiStore } from '../stores/uiStore';
+
+vi.mock('../services/auth/authClient', () => ({
+  authSessionQueryKey: ['auth', 'session'],
+  getAuthSession: vi.fn(async () => ({ user: null })),
+  login: vi.fn(async () => ({ user: { email: 'demo@example.com' } })),
+  logout: vi.fn(async () => ({ user: null })),
+  signup: vi.fn(async () => ({ user: { email: 'demo@example.com' } }))
+}));
+
+vi.mock('../services/copilot/brokerCopilotClient', () => ({
+  getCopilotSuggestions: vi.fn(async () => ({ suggestions: [] })),
+  getHistory: vi.fn(async () => mockHistory),
+  getSettingsStatus: vi.fn(async () => mockSettingsStatus),
+  saveAtlassianSettings: vi.fn(),
+  clearAtlassianSettings: vi.fn(),
+  testAtlassianSettings: vi.fn(),
+  saveLlmSettings: vi.fn(),
+  clearLlmSettings: vi.fn(),
+  getLlmProviderModels: vi.fn(async () => ({ source: 'public', cached: false, models: [] })),
+  testLlmSettings: vi.fn()
+}));
 
 function renderApp(initialRoute = '/copilot') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -20,6 +43,10 @@ function renderApp(initialRoute = '/copilot') {
 
 describe('route freeze', () => {
   beforeEach(() => {
+    vi.mocked(getAuthSession).mockResolvedValue({ user: null });
+    vi.mocked(login).mockResolvedValue({ user: { email: 'demo@example.com' } });
+    vi.mocked(signup).mockResolvedValue({ user: { email: 'demo@example.com' } });
+    vi.mocked(logout).mockResolvedValue({ user: null });
     window.localStorage.setItem(productTourStorageKey, 'true');
     window.localStorage.removeItem(themeStorageKey);
     document.documentElement.removeAttribute('data-theme');
@@ -48,6 +75,42 @@ describe('route freeze', () => {
     expect(await screen.findByRole('heading', { name: 'Atlassian 코파일럿' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Atlassian 코파일럿 프롬프트' })).toBeInTheDocument();
     expect(screen.queryByText(/로그인|sign in|authenticate|권한/i)).not.toBeInTheDocument();
+  });
+
+  it('redirects unauthenticated History access to login', async () => {
+    renderApp('/history');
+
+    expect(await screen.findByRole('heading', { name: '로그인' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '기록' })).not.toBeInTheDocument();
+  });
+
+  it('redirects unauthenticated Settings access to login', async () => {
+    renderApp('/settings');
+
+    expect(await screen.findByRole('heading', { name: '로그인' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '설정' })).not.toBeInTheDocument();
+  });
+
+  it('shows authenticated shell controls without using browser token storage', async () => {
+    vi.mocked(getAuthSession).mockResolvedValue({ user: { email: 'demo@example.com' } });
+    renderApp('/copilot');
+
+    expect(await screen.findByText('demo@example.com')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '로그아웃' })).toBeInTheDocument();
+    expect(window.localStorage.getItem('auth_token')).toBeNull();
+    expect(window.sessionStorage.getItem('auth_token')).toBeNull();
+  });
+
+  it('logs in with the local form and returns to the protected route', async () => {
+    const user = userEvent.setup();
+    renderApp('/settings');
+
+    await user.type(await screen.findByLabelText('이메일'), 'demo@example.com');
+    await user.type(screen.getByLabelText('비밀번호'), 'DemoPass123!');
+    await user.click(screen.getByRole('button', { name: '로그인' }));
+
+    expect(login).toHaveBeenCalledWith({ email: 'demo@example.com', password: 'DemoPass123!' });
+    expect(await screen.findByRole('heading', { name: '설정' })).toBeInTheDocument();
   });
 
   it('lets users switch between dark and light screen modes from the main navigation', async () => {
