@@ -18,6 +18,10 @@ vi.mock('../services/auth/authClient', () => ({
 }));
 
 vi.mock('../services/copilot/brokerCopilotClient', () => ({
+  createCopilotRun: vi.fn(async () => ({ runId: 'run_route_test', streamUrl: '/api/copilot/runs/run_route_test/stream' })),
+  streamCopilotEvents: vi.fn(async function* () { yield* []; }),
+  approveAction: vi.fn(),
+  cancelAction: vi.fn(),
   getCopilotSuggestions: vi.fn(async () => ({ suggestions: [] })),
   getHistory: vi.fn(async () => mockHistory),
   getSettingsStatus: vi.fn(async () => mockSettingsStatus),
@@ -109,7 +113,7 @@ describe('route freeze', () => {
     await user.type(screen.getByLabelText('비밀번호'), 'DemoPass123!');
     await user.click(screen.getByRole('button', { name: '로그인' }));
 
-    expect(login).toHaveBeenCalledWith({ email: 'demo@example.com', password: 'DemoPass123!' });
+    expect(vi.mocked(login).mock.calls[0]?.[0]).toEqual({ email: 'demo@example.com', password: 'DemoPass123!' });
     expect(await screen.findByRole('heading', { name: '설정' })).toBeInTheDocument();
   });
 
