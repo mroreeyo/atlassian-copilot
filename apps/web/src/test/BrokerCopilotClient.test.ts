@@ -1,4 +1,3 @@
-import { ReadableStream } from 'node:stream/web';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMockRunEvents, mockHistory, mockSettingsStatus } from '@akc/shared/mock';
 import { clearAtlassianSettings, clearLlmSettings, createCopilotRun, decodeSseFrames, getCopilotSuggestions, getHistory, getLlmProviderModels, getSettingsStatus, saveAtlassianSettings, saveLlmSettings, streamCopilotEvents, testAtlassianSettings, testLlmSettings } from '../services/copilot/brokerCopilotClient';
@@ -7,14 +6,21 @@ function toSse(events: unknown[]): string {
   return events.map((event) => `event: ${(event as { type: string }).type}\ndata: ${JSON.stringify(event)}\n\n`).join('');
 }
 
-function streamFromChunks(chunks: string[]): globalThis.ReadableStream<Uint8Array> {
+function responseFromChunks(chunks: string[]): Response {
   const encoder = new TextEncoder();
-  return new ReadableStream({
-    start(controller) {
-      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
-      controller.close();
+  let index = 0;
+  const body = {
+    getReader() {
+      return {
+        async read() {
+          if (index >= chunks.length) return { done: true, value: undefined };
+          return { done: false, value: encoder.encode(chunks[index++]) };
+        }
+      };
     }
-  }) as unknown as globalThis.ReadableStream<Uint8Array>;
+  } as unknown as ReadableStream<Uint8Array>;
+
+  return { ok: true, status: 200, body } as Response;
 }
 
 describe('Broker Copilot client', () => {
@@ -56,7 +62,7 @@ describe('Broker Copilot client', () => {
 
   it('handles chunked SSE frames without losing events', async () => {
     const body = toSse(createMockRunEvents('run_chunked'));
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(streamFromChunks([body.slice(0, 25), body.slice(25, 140), body.slice(140)]), { status: 200 }));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(responseFromChunks([body.slice(0, 25), body.slice(25, 140), body.slice(140)]));
     const streamed = [];
     for await (const event of streamCopilotEvents('/api/copilot/runs/run_chunked/stream')) streamed.push(event);
     expect(streamed[0]).toMatchObject({ type: 'run.created', runId: 'run_chunked' });
@@ -290,9 +296,15 @@ describe('Broker Copilot client', () => {
 
   it('rejects browser Broker base URLs that embed credentials or auth query values', async () => {
     const unsafeBaseUrls = [
+      '//broker.example',
       'https://user:pass@broker.example',
       'https://broker.example?token=secret',
-      'https://broker.example?api_key=secret'
+      'https://broker.example?api_key=secret',
+      'https://broker.example?apiKey=secret',
+      'https://broker.example?accessToken=secret',
+      'https://broker.example?oauthToken=secret',
+      'https://broker.example?jwt=secret',
+      'https://broker.example?locale=ko'
     ];
 
     for (const unsafeBaseUrl of unsafeBaseUrls) {

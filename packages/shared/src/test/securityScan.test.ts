@@ -53,10 +53,14 @@ describe('frontend security scan', () => {
       join(root, 'src/client.ts'),
       [
         "localStorage.setItem('auth_token', token);",
+        "localStorage.setItem('apiKey', apiKey);",
         "sessionStorage.setItem('csrfToken', csrf);",
         "window.history.pushState(null, '', '?sessionToken=' + token);",
+        "window.history.pushState(null, '', '?apiKey=' + apiKey);",
+        "window.history.pushState(null, '', '?accessToken=' + token);",
         "const params = new URLSearchParams({ oauthToken: token });",
-        "params.set('jwt', token);"
+        "params.set('jwt', token);",
+        "params.set('apiKey', apiKey);"
       ].join('\n')
     );
 

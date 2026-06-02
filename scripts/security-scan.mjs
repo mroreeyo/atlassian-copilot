@@ -30,13 +30,13 @@ const forbiddenPatterns = [
   /https?:\/\/api\.anthropic\.com/i,
   /https?:\/\/(?:api\.)?openrouter\.ai/i,
   /mcp-atlassian/i,
-  /(?:localStorage|sessionStorage)\s*\.\s*setItem\s*\(\s*['"][^'"]*(?:auth|token|session|jwt|csrf|oauth)[^'"]*['"]/i,
-  /(?:localStorage|sessionStorage)\s*\[\s*['"][^'"]*(?:auth|token|session|jwt|csrf|oauth)[^'"]*['"]\s*\]\s*=/i,
-  /(?:localStorage|sessionStorage)\s*\.\s*(?:auth|token|session|jwt|csrf|oauth)[\w$]*\s*=/i,
-  /[?&](?:auth|token|session|jwt|csrf|oauth)[\w-]*=/i,
-  /(?:URLSearchParams|searchParams)\s*\.\s*(?:append|set)\s*\(\s*['"][^'"]*(?:auth|token|session|jwt|csrf|oauth)[^'"]*['"]/i,
-  /new\s+URLSearchParams\s*\(\s*\{[\s\S]*?['"]?[^'"}]*(?:auth|token|session|jwt|csrf|oauth)[^'"}]*['"]?\s*:/i,
-  /new\s+URLSearchParams\s*\(\s*\[\s*\[\s*['"][^'"]*(?:auth|token|session|jwt|csrf|oauth)[^'"]*['"]/i
+  /(?:localStorage|sessionStorage)\s*\.\s*setItem\s*\(\s*['"][^'"]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth)[^'"]*['"]/i,
+  /(?:localStorage|sessionStorage)\s*\[\s*['"][^'"]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth)[^'"]*['"]\s*\]\s*=/i,
+  /(?:localStorage|sessionStorage)\s*\.\s*(?:auth|credential|apiKey|password|secret|token|session|jwt|csrf|oauth)[\w$]*\s*=/i,
+  /[?&][^"'`\\\s=]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth)[^"'`\\\s=]*=/i,
+  /(?:URLSearchParams|searchParams)\s*\.\s*(?:append|set)\s*\(\s*['"][^'"]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth)[^'"]*['"]/i,
+  /new\s+URLSearchParams\s*\(\s*\{[\s\S]*?['"]?[^'"}]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth)[^'"}]*['"]?\s*:/i,
+  /new\s+URLSearchParams\s*\(\s*\[\s*\[\s*['"][^'"]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth)[^'"]*['"]/i
 ];
 
 function files(dir) {
