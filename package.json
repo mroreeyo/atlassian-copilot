@@ -14,7 +14,7 @@
     "dev:broker": "npm run dev -w @akc/broker",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc -b",
-    "test": "vitest run --pool=threads --maxWorkers=1 --no-file-parallelism --hookTimeout=60000 --testTimeout=60000",
+    "test": "vitest run --pool=vmThreads --maxWorkers=1 --no-file-parallelism --hookTimeout=60000 --testTimeout=60000",
     "build": "npm run build -w @akc/shared && npm run build -w @akc/broker && npm run build -w @akc/web",
     "security:scan": "node scripts/security-scan.mjs",
     "smoke:mcp:jira-search": "node apps/broker/dist/scripts/smoke-mcp.js jira_search",

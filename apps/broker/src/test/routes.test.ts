@@ -2,7 +2,6 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { InjectOptions, Response as LightMyRequestResponse } from 'light-my-request';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { InjectOptions, LightMyRequestResponse } from 'fastify';
 import { buildApp } from '../app.js';
@@ -116,23 +115,17 @@ afterAll(async () => {
   rmSync(stateDir, { recursive: true, force: true });
 }, routeHookTimeoutMs);
 
-type TestInjectOptions = Omit<InjectOptions, 'method' | 'url' | 'headers'> & {
-  method: NonNullable<InjectOptions['method']>;
-  url: string;
-  headers?: Record<string, string>;
-};
-
-async function authInject(options: TestInjectOptions): Promise<LightMyRequestResponse> {
+async function authInject(options: InjectOptions): Promise<LightMyRequestResponse> {
   return await app.inject({
     ...options,
-    headers: { cookie: authCookie, ...(options.headers ?? {}) }
+    headers: { cookie: authCookie, ...((options.headers ?? {}) as Record<string, string>) }
   });
 }
 
 async function createRun(app: ReturnType<typeof buildApp>, message = 'hello') {
   const created = await authInject({ method: 'POST', url: '/api/copilot/runs', payload: { message, mode: 'readonly' } });
-  const runId = (created.json() as { runId: string }).runId;
-  return { runId, actionId: `${runId}_act_003`, streamUrl: (created.json() as { streamUrl: string }).streamUrl };
+  const runId = created.json<{ runId: string }>().runId;
+  return { runId, actionId: `${runId}_act_003`, streamUrl: created.json<{ streamUrl: string }>().streamUrl };
 }
 
 async function saveAtlassianSettingsForAssignedIssues() {
@@ -198,73 +191,94 @@ function parseSseDataFrames(body: string): unknown[] {
 }
 
 describe('broker routes', () => {
-  it('signs up local users with an HttpOnly bounded cookie and no password hash leakage', async () => {
+  it('signs up with a strong local password and sets a bounded HttpOnly session cookie without leaking credential fields', async () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/auth/signup',
-      payload: { email: 'New.User+auth@example.com', password: 'LocalAuth123' }
+      payload: { email: `  ${uniqueAuthEmail('signup').toUpperCase()}  `, password: 'StrongPass123' }
     });
 
     expect(response.statusCode).toBe(201);
-    expect(response.json()).toMatchObject({ user: { email: 'new.user+auth@example.com' } });
-    expect(response.body).not.toContain('passwordHash');
-    expect(response.body).not.toContain('passwordSalt');
-    expect(response.body).not.toContain('LocalAuth123');
-    const setCookie = String(response.headers['set-cookie']);
+    expect(response.json()).toMatchObject({ user: { email: expect.stringMatching(/^signup-\d+@example\.com$/), createdAt: expect.any(String) } });
+    const setCookie = Array.isArray(response.headers['set-cookie']) ? response.headers['set-cookie'][0] : response.headers['set-cookie'];
     expect(setCookie).toContain('akc_session=');
     expect(setCookie).toContain('HttpOnly');
     expect(setCookie).toContain('SameSite=Lax');
     expect(setCookie).toContain('Path=/');
-    expect(setCookie).toMatch(/Max-Age=\d+/);
+    expect(setCookie).toContain('Max-Age=604800');
     expect(setCookie).not.toContain('Secure');
+    expect(response.body).not.toMatch(/password(Hash|Salt)?|akc_session|sessionId/i);
   }, 30_000);
 
-  it('uses cookie-backed sessions and invalidates them on logout', async () => {
-    const signup = await app.inject({
-      method: 'POST',
-      url: '/api/auth/signup',
-      payload: { email: 'logout-user@example.com', password: 'LocalAuth123' }
-    });
-    const cookie = String(signup.headers['set-cookie']);
-    const session = await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie } });
+  it('rejects weak or duplicate signup requests without exposing stored password material', async () => {
+    const email = uniqueAuthEmail('duplicate');
+    const weak = await app.inject({ method: 'POST', url: '/api/auth/signup', payload: { email, password: 'weak' } });
+    expect(weak.statusCode).toBe(400);
+
+    const first = await app.inject({ method: 'POST', url: '/api/auth/signup', payload: { email, password: 'StrongPass123' } });
+    const second = await app.inject({ method: 'POST', url: '/api/auth/signup', payload: { email, password: 'StrongPass123' } });
+
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(409);
+    expect(second.body).not.toMatch(/password(Hash|Salt)?|StrongPass123|akc_session|sessionId/i);
+  }, 30_000);
+
+  it('logs in, resolves the cookie-backed session, and invalidates it on logout', async () => {
+    const email = uniqueAuthEmail('login');
+    await app.inject({ method: 'POST', url: '/api/auth/signup', payload: { email, password: 'StrongPass123' } });
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: email.toUpperCase(), password: 'StrongPass123' } });
+    const loginCookie = Array.isArray(login.headers['set-cookie']) ? (login.headers['set-cookie'][0] ?? '') : (login.headers['set-cookie'] ?? '');
+
+    expect(login.statusCode).toBe(200);
+    expect(login.json()).toMatchObject({ user: { email, createdAt: expect.any(String) } });
+    expect(login.body).not.toMatch(/password(Hash|Salt)?|StrongPass123|sessionId/i);
+
+    const session = await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie: loginCookie } });
     expect(session.statusCode).toBe(200);
-    expect(session.json()).toMatchObject({ user: { email: 'logout-user@example.com' } });
+    expect(session.json()).toMatchObject({ user: { email } });
 
-    const logout = await app.inject({ method: 'POST', url: '/api/auth/logout', headers: { cookie } });
+    const logout = await app.inject({ method: 'POST', url: '/api/auth/logout', headers: { cookie: loginCookie } });
+    const clearedCookie = Array.isArray(logout.headers['set-cookie']) ? (logout.headers['set-cookie'][0] ?? '') : (logout.headers['set-cookie'] ?? '');
     expect(logout.statusCode).toBe(200);
-    expect(String(logout.headers['set-cookie'])).toContain('Max-Age=0');
+    expect(clearedCookie).toContain('akc_session=;');
+    expect(clearedCookie).toContain('Max-Age=0');
 
-    const afterLogout = await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie } });
+    const afterLogout = await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie: loginCookie } });
     expect(afterLogout.statusCode).toBe(401);
   }, 30_000);
 
-  it('rejects duplicate signup, generic login failure, and repeated auth failures safely', async () => {
-    await app.inject({ method: 'POST', url: '/api/auth/signup', payload: { email: 'rate-limit@example.com', password: 'LocalAuth123' } });
-    const duplicate = await app.inject({ method: 'POST', url: '/api/auth/signup', payload: { email: 'RATE-LIMIT@example.com', password: 'LocalAuth123' } });
-    expect(duplicate.statusCode).toBe(409);
-    expect(duplicate.body).not.toContain('passwordHash');
-
-    const headers = { 'x-forwarded-for': '203.0.113.77' };
-    let last = await app.inject({ method: 'POST', url: '/api/auth/login', headers, payload: { email: 'rate-limit@example.com', password: 'wrong' } });
-    expect(last.statusCode).toBe(401);
-    expect(last.json()).toEqual({ error: '이메일 또는 비밀번호가 올바르지 않습니다.' });
-    for (let index = 0; index < 5; index += 1) {
-      last = await app.inject({ method: 'POST', url: '/api/auth/login', headers, payload: { email: 'rate-limit@example.com', password: 'wrong' } });
+  it('rate-limits repeated login failures by forwarded client key', async () => {
+    const email = uniqueAuthEmail('rate-limit');
+    await app.inject({ method: 'POST', url: '/api/auth/signup', payload: { email, password: 'StrongPass123' } });
+    const headers = { 'x-forwarded-for': `203.0.113.${authTestCounter}` };
+    const attempts = [];
+    for (let index = 0; index < 6; index += 1) {
+      attempts.push(await app.inject({ method: 'POST', url: '/api/auth/login', headers, payload: { email, password: 'WrongPass123' } }));
     }
-    expect(last.statusCode).toBe(429);
-    expect(last.body).not.toContain('passwordHash');
-    expect(last.body).not.toContain('passwordSalt');
+
+    expect(attempts.slice(0, 5).map((attempt) => attempt.statusCode)).toEqual([401, 401, 401, 401, 401]);
+    expect(attempts[5]?.statusCode).toBe(429);
+    expect(attempts[5]?.body).not.toMatch(/password(Hash|Salt)?|WrongPass123|sessionId/i);
   }, 30_000);
 
-  it('requires server-side auth for protected history, settings, and action endpoints', async () => {
+  it('requires auth for sensitive Broker endpoints while keeping unauthenticated Copilot demo safe', async () => {
     const history = await app.inject({ method: 'GET', url: '/api/history' });
     const settings = await app.inject({ method: 'GET', url: '/api/settings/status' });
-    const approve = await app.inject({ method: 'POST', url: '/api/copilot/actions/missing/approve', payload: { approved: true } });
+    const settingsMutation = await app.inject({ method: 'POST', url: '/api/settings/llm', payload: { provider: 'mock', enabled: true } });
+    const actionMutation = await app.inject({ method: 'POST', url: '/api/copilot/actions/missing/approve', payload: { approved: true } });
 
     expect(history.statusCode).toBe(401);
     expect(settings.statusCode).toBe(401);
-    expect(approve.statusCode).toBe(401);
-    expect(history.json()).toEqual({ error: '로그인이 필요합니다.' });
+    expect(settingsMutation.statusCode).toBe(401);
+    expect(actionMutation.statusCode).toBe(401);
+
+    const created = await app.inject({ method: 'POST', url: '/api/copilot/runs', payload: { message: 'SCRUM-7에 댓글 남겨줘', mode: 'sandbox-write' } });
+    const stream = await app.inject({ method: 'GET', url: created.json<{ streamUrl: string }>().streamUrl });
+    expect(created.statusCode).toBe(200);
+    expect(stream.statusCode).toBe(200);
+    expect(stream.body).toContain('데모 모드입니다');
+    expect(stream.body).not.toContain('event: action_review.required');
+    expect(stream.body).not.toMatch(/OPENAI_API_KEY|ATLASSIAN_API_TOKEN|password(Hash|Salt)?|sessionId/i);
   }, 30_000);
 
   it('creates a copilot run and exposes a stream URL', async () => {
@@ -275,7 +289,7 @@ describe('broker routes', () => {
 
   it('streams canonical SSE events from the server endpoint', async () => {
     const created = await authInject({ method: 'POST', url: '/api/copilot/runs', payload: { message: 'hello', mode: 'readonly' } });
-    const stream = await authInject({ method: 'GET', url: (created.json() as { streamUrl: string }).streamUrl });
+    const stream = await authInject({ method: 'GET', url: created.json<{ streamUrl: string }>().streamUrl });
     expect(stream.statusCode).toBe(200);
     expect(stream.body).toContain('event: run.created');
     expect(stream.body).toContain('조회된 데이터가 없습니다');
@@ -311,7 +325,7 @@ describe('broker routes', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(assignedIssueSearchResponse());
     await saveAtlassianSettingsForAssignedIssues();
     const created = await authInject({ method: 'POST', url: '/api/copilot/runs', payload: { message: '나에게 할당된 이슈들을 조회해줘', mode: 'readonly' } });
-    const stream = await authInject({ method: 'GET', url: (created.json() as { streamUrl: string }).streamUrl });
+    const stream = await authInject({ method: 'GET', url: created.json<{ streamUrl: string }>().streamUrl });
     expect(stream.statusCode).toBe(200);
     expect(stream.body).toContain('SCRUM-7');
     expect(stream.body).toContain('"origin":"real"');
@@ -331,7 +345,7 @@ describe('broker routes', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ issues: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     await saveAtlassianSettingsForAssignedIssues();
     const created = await authInject({ method: 'POST', url: '/api/copilot/runs', payload: { message: '나에게 할당된 이슈들을 조회해줘', mode: 'readonly' } });
-    const stream = await authInject({ method: 'GET', url: (created.json() as { streamUrl: string }).streamUrl });
+    const stream = await authInject({ method: 'GET', url: created.json<{ streamUrl: string }>().streamUrl });
 
     expect(stream.statusCode).toBe(200);
     expect(stream.body).toContain('Jira에서 이슈 0개 발견');
@@ -344,7 +358,7 @@ describe('broker routes', () => {
   it('streams demo Jira and Confluence evidence without credentials or external Atlassian calls', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch');
     const created = await authInject({ method: 'POST', url: '/api/copilot/runs', payload: { message: '나에게 할당된 JIRA 이슈를 조회해줘.', mode: 'mock' } });
-    const stream = await authInject({ method: 'GET', url: (created.json() as { streamUrl: string }).streamUrl });
+    const stream = await authInject({ method: 'GET', url: created.json<{ streamUrl: string }>().streamUrl });
 
     expect(stream.statusCode).toBe(200);
     expect(stream.body).toContain('event: tool_plan.created');
@@ -370,7 +384,7 @@ describe('broker routes', () => {
       url: '/api/copilot/runs',
       payload: { message: '인터뷰 시연을 시작해줘', mode: 'mock' }
     });
-    const stream = await authInject({ method: 'GET', url: (created.json() as { streamUrl: string }).streamUrl });
+    const stream = await authInject({ method: 'GET', url: created.json<{ streamUrl: string }>().streamUrl });
 
     expect(stream.statusCode).toBe(200);
     expect(stream.body).toContain('데모 모드입니다');
@@ -392,7 +406,7 @@ describe('broker routes', () => {
       url: '/api/copilot/runs',
       payload: { message: 'SCRUM-7에 댓글로 "검토 완료" 남겨줘', mode: 'mock' }
     });
-    const stream = await authInject({ method: 'GET', url: (created.json() as { streamUrl: string }).streamUrl });
+    const stream = await authInject({ method: 'GET', url: created.json<{ streamUrl: string }>().streamUrl });
 
     expect(stream.statusCode).toBe(200);
     expect(stream.body).toContain('데모 모드입니다');
@@ -420,9 +434,9 @@ describe('broker routes', () => {
 
   it('creates a safe write Action Review without executing Jira writes in readonly mode', async () => {
     const created = await authInject({ method: 'POST', url: '/api/copilot/runs', payload: { message: 'SCRUM-7에 댓글로 "검토 완료" 남겨줘', mode: 'readonly' } });
-    const runId = (created.json() as { runId: string }).runId;
+    const runId = created.json<{ runId: string }>().runId;
     const actionId = `${runId}_act_jira_comment`;
-    const stream = await authInject({ method: 'GET', url: (created.json() as { streamUrl: string }).streamUrl });
+    const stream = await authInject({ method: 'GET', url: created.json<{ streamUrl: string }>().streamUrl });
 
     expect(stream.statusCode).toBe(200);
     expect(stream.body).toContain('event: action_review.required');
@@ -460,9 +474,9 @@ describe('broker routes', () => {
     ['Confluence 댓글', 'Confluence 페이지에 댓글을 남겨줘', 'act_confluence_comment', 'confluence_add_comment']
   ])('creates a safe write Action Review for %s without executing writes in readonly mode', async (_label, message, actionSuffix, tool) => {
     const created = await authInject({ method: 'POST', url: '/api/copilot/runs', payload: { message, mode: 'readonly' } });
-    const runId = (created.json() as { runId: string }).runId;
+    const runId = created.json<{ runId: string }>().runId;
     const actionId = `${runId}_${actionSuffix}`;
-    const stream = await authInject({ method: 'GET', url: (created.json() as { streamUrl: string }).streamUrl });
+    const stream = await authInject({ method: 'GET', url: created.json<{ streamUrl: string }>().streamUrl });
 
     expect(stream.statusCode).toBe(200);
     expect(stream.body).toContain('event: action_review.required');
@@ -494,10 +508,10 @@ describe('broker routes', () => {
     }));
     await saveAtlassianSettingsForAssignedIssues();
     const created = await authInject({ method: 'POST', url: '/api/copilot/runs', payload: { message: 'SCRUM-7에 댓글로 "검토 완료" 남겨줘', mode: 'sandbox-write' } });
-    const runId = (created.json() as { runId: string }).runId;
+    const runId = created.json<{ runId: string }>().runId;
     const actionId = `${runId}_act_jira_comment`;
 
-    const stream = await authInject({ method: 'GET', url: (created.json() as { streamUrl: string }).streamUrl });
+    const stream = await authInject({ method: 'GET', url: created.json<{ streamUrl: string }>().streamUrl });
     expect(stream.statusCode).toBe(200);
     expect(stream.body).toContain('내용을 확인한 뒤 승인하면 요청한 변경만 진행합니다.');
     expect(stream.body).not.toContain('Broker');
@@ -535,7 +549,7 @@ describe('broker routes', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch');
     await saveAtlassianSettingsForAssignedIssues();
     const created = await authInject({ method: 'POST', url: '/api/copilot/runs', payload: { message: 'SCRUM-7에 댓글로 "검토 완료" 남겨줘', mode: 'sandbox-write' } });
-    const runId = (created.json() as { runId: string }).runId;
+    const runId = created.json<{ runId: string }>().runId;
     const actionId = `${runId}_act_jira_comment`;
 
     const approve = await authInject({
@@ -559,7 +573,7 @@ describe('broker routes', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch');
     await saveAtlassianSettingsForAssignedIssues();
     const created = await authInject({ method: 'POST', url: '/api/copilot/runs', payload: { message: 'SCRUM-7 상태를 Done으로 전환해줘', mode: 'sandbox-write' } });
-    const runId = (created.json() as { runId: string }).runId;
+    const runId = created.json<{ runId: string }>().runId;
     const actionId = `${runId}_act_jira_transition`;
 
     const approve = await authInject({
