@@ -61,7 +61,7 @@ beforeAll(async () => {
     payload: { email: 'route-tests@example.com', password: 'RouteTests123' }
   });
   const setCookie = signup.headers['set-cookie'];
-  authCookie = Array.isArray(setCookie) ? setCookie[0] : setCookie ?? '';
+  authCookie = Array.isArray(setCookie) ? (setCookie[0] ?? '') : (setCookie ?? '');
 }, routeHookTimeoutMs);
 
 afterEach(() => {
@@ -113,8 +113,14 @@ afterAll(async () => {
   rmSync(stateDir, { recursive: true, force: true });
 }, routeHookTimeoutMs);
 
-function authInject(options: Parameters<ReturnType<typeof buildApp>['inject']>[0]) {
-  if (typeof options === 'string') return app.inject(options);
+type TestInjectOptions = {
+  method: string;
+  url: string;
+  payload?: unknown;
+  headers?: Record<string, string>;
+};
+
+function authInject(options: TestInjectOptions) {
   return app.inject({
     ...options,
     headers: { cookie: authCookie, ...(options.headers ?? {}) }
