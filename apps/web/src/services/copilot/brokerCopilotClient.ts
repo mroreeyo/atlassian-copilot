@@ -35,26 +35,7 @@ import {
   type RunCreateResponse,
   type SettingsStatus
 } from '@akc/shared';
-
-const brokerBaseUrl = safeBrokerBaseUrl(import.meta.env.VITE_BROKER_BASE_URL ?? '');
-
-function safeBrokerBaseUrl(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return '';
-  if (trimmed.startsWith('//')) throw new Error('브라우저 Broker URL은 http(s) URL이어야 합니다.');
-  const url = new URL(trimmed, 'http://localhost');
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('브라우저 Broker URL은 http(s) URL이어야 합니다.');
-  if (url.username || url.password) throw new Error('브라우저 Broker URL에는 인증 정보를 포함할 수 없습니다.');
-  if (url.hash) throw new Error('브라우저 Broker URL에는 해시를 포함할 수 없습니다.');
-  if (url.search) throw new Error('브라우저 Broker URL에는 쿼리 값을 포함할 수 없습니다.');
-  return trimmed.replace(/\/+$/, '');
-}
-
-function brokerUrl(path: string): string {
-  if (/^https?:\/\//i.test(path)) throw new Error('서버 응답은 상대 /api URL만 사용할 수 있습니다.');
-  if (!path.startsWith('/api/')) throw new Error(`잘못된 서버 경로: ${path}`);
-  return `${brokerBaseUrl}${path}`;
-}
+import { brokerUrl } from './brokerUrl';
 
 function streamBrokerUrl(path: string): string {
   if (!/^\/api\/copilot\/runs\/[^/?#/]+\/stream$/.test(path)) {
@@ -76,6 +57,7 @@ export async function createCopilotRun(request: RunCreateRequest): Promise<RunCr
 export async function approveAction(actionId: string, inputPreview?: ActionApprovalRequest['inputPreview']): Promise<ActionApprovalResponse> {
   const response = await fetch(brokerUrl(`/api/copilot/actions/${encodeURIComponent(actionId)}/approve`), {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ approved: true, ...(inputPreview ? { inputPreview } : {}) })
   });
@@ -86,6 +68,7 @@ export async function approveAction(actionId: string, inputPreview?: ActionAppro
 export async function cancelAction(actionId: string, reason = '사용자가 작업 검토에서 취소했습니다.'): Promise<ActionCancelResponse> {
   const response = await fetch(brokerUrl(`/api/copilot/actions/${encodeURIComponent(actionId)}/cancel`), {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ reason })
   });
@@ -94,7 +77,7 @@ export async function cancelAction(actionId: string, reason = '사용자가 작�
 }
 
 export async function getHistory(): Promise<HistoryResponse> {
-  const response = await fetch(brokerUrl('/api/history'), { headers: { Accept: 'application/json' } });
+  const response = await fetch(brokerUrl('/api/history'), { credentials: 'include', headers: { Accept: 'application/json' } });
   if (!response.ok) throw new Error(`서버 기록 조회가 실패했습니다. 상태 ${response.status}`);
   return HistoryResponseSchema.parse(await response.json());
 }
@@ -106,7 +89,7 @@ export async function getCopilotSuggestions(): Promise<CopilotSuggestionsRespons
 }
 
 export async function getSettingsStatus(): Promise<SettingsStatus> {
-  const response = await fetch(brokerUrl('/api/settings/status'), { headers: { Accept: 'application/json' } });
+  const response = await fetch(brokerUrl('/api/settings/status'), { credentials: 'include', headers: { Accept: 'application/json' } });
   if (!response.ok) throw new Error(`서버 설정 조회가 실패했습니다. 상태 ${response.status}`);
   return SettingsStatusSchema.parse(await response.json());
 }
@@ -115,6 +98,7 @@ export async function saveAtlassianSettings(request: AtlassianSettingsRequest): 
   const payload = AtlassianSettingsRequestSchema.parse(request);
   const response = await fetch(brokerUrl('/api/settings/atlassian'), {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(payload)
   });
@@ -125,6 +109,7 @@ export async function saveAtlassianSettings(request: AtlassianSettingsRequest): 
 export async function clearAtlassianSettings(): Promise<AtlassianSettingsClearResponse> {
   const response = await fetch(brokerUrl('/api/settings/atlassian'), {
     method: 'DELETE',
+    credentials: 'include',
     headers: { Accept: 'application/json' }
   });
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '서버 설정 삭제 실패'));
@@ -134,6 +119,7 @@ export async function clearAtlassianSettings(): Promise<AtlassianSettingsClearRe
 export async function testAtlassianSettings(): Promise<AtlassianSettingsTestResponse> {
   const response = await fetch(brokerUrl('/api/settings/atlassian/test'), {
     method: 'POST',
+    credentials: 'include',
     headers: { Accept: 'application/json' }
   });
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '서버 Atlassian 테스트 실패'));
@@ -144,6 +130,7 @@ export async function saveLlmSettings(request: LlmSettingsRequest): Promise<LlmS
   const payload = LlmSettingsRequestSchema.parse(request);
   const response = await fetch(brokerUrl('/api/settings/llm'), {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(payload)
   });
@@ -154,6 +141,7 @@ export async function saveLlmSettings(request: LlmSettingsRequest): Promise<LlmS
 export async function clearLlmSettings(): Promise<LlmSettingsClearResponse> {
   const response = await fetch(brokerUrl('/api/settings/llm'), {
     method: 'DELETE',
+    credentials: 'include',
     headers: { Accept: 'application/json' }
   });
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '서버 LLM 설정 삭제 실패'));
@@ -163,6 +151,7 @@ export async function clearLlmSettings(): Promise<LlmSettingsClearResponse> {
 export async function getLlmProviderModels(provider: LlmModelCatalogProvider, refresh = false): Promise<LlmProviderModelsResponse> {
   const suffix = refresh ? '?refresh=true' : '';
   const response = await fetch(brokerUrl(`/api/settings/llm/providers/${encodeURIComponent(provider)}/models${suffix}`), {
+    credentials: 'include',
     headers: { Accept: 'application/json' }
   });
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '서버 LLM 모델 목록 조회 실패'));
@@ -172,6 +161,7 @@ export async function getLlmProviderModels(provider: LlmModelCatalogProvider, re
 export async function testLlmSettings(): Promise<LlmSettingsTestResponse> {
   const response = await fetch(brokerUrl('/api/settings/llm/test'), {
     method: 'POST',
+    credentials: 'include',
     headers: { Accept: 'application/json' }
   });
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '서버 LLM 테스트 실패'));
