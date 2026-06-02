@@ -2,6 +2,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { InjectOptions, Response as LightMyRequestResponse } from 'light-my-request';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { InjectOptions, LightMyRequestResponse } from 'fastify';
 import { buildApp } from '../app.js';
@@ -115,15 +116,14 @@ afterAll(async () => {
   rmSync(stateDir, { recursive: true, force: true });
 }, routeHookTimeoutMs);
 
-type TestInjectOptions = {
-  method: string;
+type TestInjectOptions = Omit<InjectOptions, 'method' | 'url' | 'headers'> & {
+  method: NonNullable<InjectOptions['method']>;
   url: string;
-  payload?: unknown;
   headers?: Record<string, string>;
 };
 
-async function authInject(options: TestInjectOptions): Promise<any> {
-  return await (app.inject as any)({
+async function authInject(options: TestInjectOptions): Promise<LightMyRequestResponse> {
+  return await app.inject({
     ...options,
     headers: { cookie: authCookie, ...(options.headers ?? {}) }
   });
@@ -215,7 +215,7 @@ describe('broker routes', () => {
     expect(setCookie).toContain('HttpOnly');
     expect(setCookie).toContain('SameSite=Lax');
     expect(setCookie).toContain('Path=/');
-    expect(setCookie).toMatch(/Max-Age=\\d+/);
+    expect(setCookie).toMatch(/Max-Age=\d+/);
     expect(setCookie).not.toContain('Secure');
   }, 30_000);
 

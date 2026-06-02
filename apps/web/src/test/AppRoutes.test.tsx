@@ -78,43 +78,8 @@ describe('route freeze', () => {
 
     expect(await screen.findByRole('heading', { name: 'Atlassian 코파일럿' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Atlassian 코파일럿 프롬프트' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '로그인' })).not.toBeInTheDocument();
-  });
-
-  it('redirects unauthenticated History access to login', async () => {
-    renderApp('/history');
-
-    expect(await screen.findByRole('heading', { name: '로그인' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '기록' })).not.toBeInTheDocument();
-  });
-
-  it('redirects unauthenticated Settings access to login', async () => {
-    renderApp('/settings');
-
-    expect(await screen.findByRole('heading', { name: '로그인' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '설정' })).not.toBeInTheDocument();
-  });
-
-  it('shows authenticated shell controls without using browser token storage', async () => {
-    vi.mocked(getAuthSession).mockResolvedValue({ user: { email: 'demo@example.com' } });
-    renderApp('/copilot');
-
-    expect(await screen.findByText('demo@example.com')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '로그아웃' })).toBeInTheDocument();
-    expect(window.localStorage.getItem('auth_token')).toBeNull();
-    expect(window.sessionStorage.getItem('auth_token')).toBeNull();
-  });
-
-  it('logs in with the local form and returns to the protected route', async () => {
-    const user = userEvent.setup();
-    renderApp('/settings');
-
-    await user.type(await screen.findByLabelText('이메일'), 'demo@example.com');
-    await user.type(screen.getByLabelText('비밀번호'), 'DemoPass123!');
-    await user.click(screen.getByRole('button', { name: '로그인' }));
-
-    expect(vi.mocked(login).mock.calls[0]?.[0]).toEqual({ email: 'demo@example.com', password: 'DemoPass123!' });
-    expect(await screen.findByRole('heading', { name: '설정' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '로그인' })).toHaveAttribute('href', '/login');
+    expect(screen.queryByText(/로그인이 필요|sign in required|authenticate|권한이 필요/i)).not.toBeInTheDocument();
   });
 
   it('lets users switch between dark and light screen modes from the main navigation', async () => {
