@@ -1,3 +1,4 @@
+import { ReadableStream } from 'node:stream/web';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMockRunEvents, mockHistory, mockSettingsStatus } from '@akc/shared/mock';
 import { clearAtlassianSettings, clearLlmSettings, createCopilotRun, decodeSseFrames, getCopilotSuggestions, getHistory, getLlmProviderModels, getSettingsStatus, saveAtlassianSettings, saveLlmSettings, streamCopilotEvents, testAtlassianSettings, testLlmSettings } from '../services/copilot/brokerCopilotClient';
@@ -6,18 +7,21 @@ function toSse(events: unknown[]): string {
   return events.map((event) => `event: ${(event as { type: string }).type}\ndata: ${JSON.stringify(event)}\n\n`).join('');
 }
 
-function streamFromChunks(chunks: string[]): ReadableStream<Uint8Array> {
+function streamFromChunks(chunks: string[]): globalThis.ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   return new ReadableStream({
     start(controller) {
       for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
       controller.close();
     }
-  });
+  }) as unknown as globalThis.ReadableStream<Uint8Array>;
 }
 
 describe('Broker Copilot client', () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
 
   it('decodes Broker SSE framing into canonical events', () => {
     const events = decodeSseFrames(toSse(createMockRunEvents('run_sse')));
@@ -276,11 +280,26 @@ describe('Broker Copilot client', () => {
       '/api/copilot/runs/run_123/stream/extra'
     ];
     for (const url of badUrls) {
-      await expect(async () => {
+      await expect((async () => {
         for await (const _event of streamCopilotEvents(url)) {
           // no-op
         }
-      }).rejects.toThrow('잘못된 응답 스트림 경로');
+      })()).rejects.toThrow('잘못된 응답 스트림 경로');
+    }
+  });
+
+  it('rejects browser Broker base URLs that embed credentials or auth query values', async () => {
+    const unsafeBaseUrls = [
+      'https://user:pass@broker.example',
+      'https://broker.example?token=secret',
+      'https://broker.example?api_key=secret'
+    ];
+
+    for (const unsafeBaseUrl of unsafeBaseUrls) {
+      vi.resetModules();
+      vi.stubEnv('VITE_BROKER_BASE_URL', unsafeBaseUrl);
+      await expect(import('../services/copilot/brokerCopilotClient')).rejects.toThrow('브라우저 Broker URL');
+      vi.unstubAllEnvs();
     }
   });
 });

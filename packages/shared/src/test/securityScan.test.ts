@@ -25,7 +25,7 @@ afterEach(() => {
 describe('frontend security scan', () => {
   it('passes relative Broker-only frontend code', () => {
     const root = fixtureRoot();
-    writeFileSync(join(root, 'src/client.ts'), "fetch('/api/settings/llm/providers/openai/models');\n");
+    writeFileSync(join(root, 'src/client.ts'), "fetch('/api/settings/llm/providers/openai/models');\nlocalStorage.setItem('theme', 'dark');\n");
 
     expect(() => execFileSync(process.execPath, [scriptPath, root], { cwd: repoRoot, stdio: 'pipe' })).not.toThrow();
   });
@@ -45,5 +45,35 @@ describe('frontend security scan', () => {
     );
 
     expect(() => execFileSync(process.execPath, [scriptPath, root], { cwd: repoRoot, stdio: 'pipe' })).toThrow();
+  });
+
+  it('fails on auth/session/token browser storage or URL leakage patterns', () => {
+    const root = fixtureRoot();
+    writeFileSync(
+      join(root, 'src/client.ts'),
+      [
+        "localStorage.setItem('auth_token', token);",
+        "sessionStorage.setItem('csrfToken', csrf);",
+        "window.history.pushState(null, '', '?sessionToken=' + token);",
+        "const params = new URLSearchParams({ oauthToken: token });",
+        "params.set('jwt', token);"
+      ].join('\n')
+    );
+
+    expect(() => execFileSync(process.execPath, [scriptPath, root], { cwd: repoRoot, stdio: 'pipe' })).toThrow();
+  });
+
+  it('ignores test fixtures that intentionally contain blocked examples', () => {
+    const root = fixtureRoot();
+    mkdirSync(join(root, 'src/test'), { recursive: true });
+    writeFileSync(
+      join(root, 'src/test/client.test.ts'),
+      [
+        "localStorage.setItem('auth_token', token);",
+        "window.history.pushState(null, '', '?sessionToken=' + token);"
+      ].join('\n')
+    );
+
+    expect(() => execFileSync(process.execPath, [scriptPath, root], { cwd: repoRoot, stdio: 'pipe' })).not.toThrow();
   });
 });

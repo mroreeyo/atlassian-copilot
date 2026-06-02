@@ -68,6 +68,15 @@ function keyPath(env = process.env): string {
 }
 
 function readOrCreateKey(env = process.env): Buffer {
+  const configuredKey = env.AKC_CREDENTIAL_ENCRYPTION_KEY?.trim();
+  if (configuredKey) {
+    const decoded = Buffer.from(configuredKey, 'base64');
+    if (decoded.length === 32) return decoded;
+    throw new Error('AKC_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key.');
+  }
+  if (env.NODE_ENV === 'production') {
+    throw new Error('AKC_CREDENTIAL_ENCRYPTION_KEY is required in production.');
+  }
   const file = keyPath(env);
   ensurePrivateDir(dirname(file));
   if (existsSync(file)) {

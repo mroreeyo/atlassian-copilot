@@ -1,6 +1,6 @@
 import type { ActionReviewRequest, AtlassianSource, ReadOnlyTool, WriteTool } from '@akc/shared';
 import { assertAllowedMcpTool } from './allowlist.js';
-import { readResolvedAtlassianCredentials } from '../settings/atlassianSettingsStore.js';
+import { normalizeAtlassianSiteUrl, readResolvedAtlassianCredentials } from '../settings/atlassianSettingsStore.js';
 
 export interface McpEnvironment {
   atlassianUrl?: string | undefined;
@@ -229,7 +229,7 @@ async function runConfluenceGetPage(query: string, env: McpEnvironment): Promise
 }
 
 async function atlassianFetch(env: McpEnvironment, path: string, init: RequestInit): Promise<Response> {
-  const base = normalizeSiteUrl(env.atlassianUrl);
+  const base = normalizeAtlassianSiteUrl(env.atlassianUrl);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
   try {
@@ -270,14 +270,6 @@ async function buildHttpErrorMessage(response: Response): Promise<string> {
     // Ignore non-JSON error bodies to avoid leaking unexpected upstream payloads.
   }
   return `Atlassian read-only request failed with status ${response.status}.${detail}`;
-}
-
-function normalizeSiteUrl(raw: string | undefined): string {
-  const siteUrl = raw?.trim();
-  if (!siteUrl) throw new Error('Atlassian site URL is missing.');
-  const parsed = new URL(siteUrl);
-  if (parsed.protocol !== 'https:') throw new Error('Atlassian site URL must use https.');
-  return parsed.origin;
 }
 
 function buildJiraSearchJql(query: string): string {
@@ -335,7 +327,7 @@ function mapJiraIssueToSource(issue: JiraIssue, env: McpEnvironment, index: numb
     title: fields.summary ?? key,
     summary: [status, assignee, priority, issueType, updated].filter(Boolean).join(' · ') || 'Jira에서 조회된 읽기 전용 이슈입니다.',
     relevanceScore: Math.max(60, 96 - index * 4),
-    url: `${normalizeSiteUrl(env.atlassianUrl)}/browse/${encodeURIComponent(key)}`,
+    url: `${normalizeAtlassianSiteUrl(env.atlassianUrl)}/browse/${encodeURIComponent(key)}`,
     actionId,
     retrievedAt: new Date().toISOString(),
     metadata: {
@@ -364,7 +356,7 @@ function mapConfluenceResultToSource(page: ConfluenceSearchResult, env: McpEnvir
     title: page.title ?? id,
     summary,
     relevanceScore: Math.max(60, 94 - index * 4),
-    url: `${normalizeSiteUrl(env.atlassianUrl)}${path.startsWith('/') ? path : `/${path}`}`,
+    url: `${normalizeAtlassianSiteUrl(env.atlassianUrl)}${path.startsWith('/') ? path : `/${path}`}`,
     actionId,
     retrievedAt: new Date().toISOString(),
     metadata: {

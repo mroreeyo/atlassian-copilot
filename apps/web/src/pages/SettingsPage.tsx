@@ -1,5 +1,5 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   AtlassianSettingsRequestSchema,
   LlmSettingsRequestSchema,
@@ -56,6 +56,8 @@ const emptyLlmForm: LlmFormState = {
 };
 
 type Notice = { tone: 'ai' | 'success' | 'danger'; text: string };
+const saveAtlassianMutationKey = ['settings', 'atlassian', 'save'];
+const saveLlmMutationKey = ['settings', 'llm', 'save'];
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
@@ -94,6 +96,7 @@ export function SettingsPage() {
   }, [status]);
 
   const saveAtlassianMutation = useMutation({
+    mutationKey: saveAtlassianMutationKey,
     mutationFn: saveAtlassianSettings,
     onSuccess: (response) => {
       queryClient.setQueryData(['settings-status'], response.status);
@@ -102,6 +105,9 @@ export function SettingsPage() {
     },
     onError: (error) => {
       setAtlassianNotice({ tone: 'danger', text: error instanceof Error ? error.message : 'Atlassian 설정 저장에 실패했습니다.' });
+    },
+    onSettled: () => {
+      removeSecretBearingMutations(queryClient, saveAtlassianMutationKey);
     }
   });
 
@@ -129,6 +135,7 @@ export function SettingsPage() {
   });
 
   const saveLlmMutation = useMutation({
+    mutationKey: saveLlmMutationKey,
     mutationFn: saveLlmSettings,
     onSuccess: (response) => {
       queryClient.setQueryData(['settings-status'], response.status);
@@ -138,6 +145,9 @@ export function SettingsPage() {
     },
     onError: (error) => {
       setLlmNotice({ tone: 'danger', text: error instanceof Error ? error.message : 'LLM 설정 저장에 실패했습니다.' });
+    },
+    onSettled: () => {
+      removeSecretBearingMutations(queryClient, saveLlmMutationKey);
     }
   });
 
@@ -587,6 +597,13 @@ function updateForm<T extends object>(
 ) {
   setNotice(null);
   setForm((current) => ({ ...current, ...patch }));
+}
+
+function removeSecretBearingMutations(queryClient: QueryClient, mutationKey: string[]) {
+  const mutationCache = queryClient.getMutationCache();
+  for (const mutation of mutationCache.findAll({ mutationKey })) {
+    mutationCache.remove(mutation);
+  }
 }
 
 function buildAtlassianSettingsPayload(form: AtlassianFormState, tokenAlreadyConfigured: boolean): { ok: true; payload: AtlassianSettingsRequest } | { ok: false; message: string } {

@@ -36,7 +36,21 @@ import {
   type SettingsStatus
 } from '@akc/shared';
 
-const brokerBaseUrl = import.meta.env.VITE_BROKER_BASE_URL ?? '';
+const secretLikeQueryKeyPattern = /(^|[_-])(auth|credential|key|password|secret|token)([_-]|$)/i;
+const brokerBaseUrl = safeBrokerBaseUrl(import.meta.env.VITE_BROKER_BASE_URL ?? '');
+
+function safeBrokerBaseUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  const url = new URL(trimmed, 'http://localhost');
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('브라우저 Broker URL은 http(s) URL이어야 합니다.');
+  if (url.username || url.password) throw new Error('브라우저 Broker URL에는 인증 정보를 포함할 수 없습니다.');
+  if (url.hash) throw new Error('브라우저 Broker URL에는 해시를 포함할 수 없습니다.');
+  for (const key of url.searchParams.keys()) {
+    if (secretLikeQueryKeyPattern.test(key)) throw new Error('브라우저 Broker URL에는 인증 쿼리 값을 포함할 수 없습니다.');
+  }
+  return trimmed.replace(/\/+$/, '');
+}
 
 function brokerUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) throw new Error('서버 응답은 상대 /api URL만 사용할 수 있습니다.');

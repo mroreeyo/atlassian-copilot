@@ -27,7 +27,11 @@ const originalEnv = {
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
   CLAUDE_API_KEY: process.env.CLAUDE_API_KEY,
   ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
-  AKC_ENABLE_LIVE_ANTHROPIC: process.env.AKC_ENABLE_LIVE_ANTHROPIC
+  AKC_ENABLE_LIVE_ANTHROPIC: process.env.AKC_ENABLE_LIVE_ANTHROPIC,
+  AKC_CREDENTIAL_ENCRYPTION_KEY: process.env.AKC_CREDENTIAL_ENCRYPTION_KEY,
+  ATLASSIAN_SITE_HOST_ALLOWLIST: process.env.ATLASSIAN_SITE_HOST_ALLOWLIST,
+  AKC_ATLASSIAN_SITE_HOST_ALLOWLIST: process.env.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST,
+  NODE_ENV: process.env.NODE_ENV
 };
 
 beforeAll(() => {
@@ -46,6 +50,9 @@ beforeAll(() => {
   delete process.env.CLAUDE_API_KEY;
   delete process.env.ANTHROPIC_MODEL;
   delete process.env.AKC_ENABLE_LIVE_ANTHROPIC;
+  delete process.env.AKC_CREDENTIAL_ENCRYPTION_KEY;
+  delete process.env.ATLASSIAN_SITE_HOST_ALLOWLIST;
+  delete process.env.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST;
   app = buildApp();
 }, routeHookTimeoutMs);
 
@@ -68,6 +75,10 @@ afterEach(() => {
   delete process.env.CLAUDE_API_KEY;
   delete process.env.ANTHROPIC_MODEL;
   delete process.env.AKC_ENABLE_LIVE_ANTHROPIC;
+  delete process.env.AKC_CREDENTIAL_ENCRYPTION_KEY;
+  delete process.env.ATLASSIAN_SITE_HOST_ALLOWLIST;
+  delete process.env.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST;
+  restoreEnv('NODE_ENV', originalEnv.NODE_ENV);
   vi.restoreAllMocks();
 });
 
@@ -87,6 +98,10 @@ afterAll(async () => {
   restoreEnv('CLAUDE_API_KEY', originalEnv.CLAUDE_API_KEY);
   restoreEnv('ANTHROPIC_MODEL', originalEnv.ANTHROPIC_MODEL);
   restoreEnv('AKC_ENABLE_LIVE_ANTHROPIC', originalEnv.AKC_ENABLE_LIVE_ANTHROPIC);
+  restoreEnv('AKC_CREDENTIAL_ENCRYPTION_KEY', originalEnv.AKC_CREDENTIAL_ENCRYPTION_KEY);
+  restoreEnv('ATLASSIAN_SITE_HOST_ALLOWLIST', originalEnv.ATLASSIAN_SITE_HOST_ALLOWLIST);
+  restoreEnv('AKC_ATLASSIAN_SITE_HOST_ALLOWLIST', originalEnv.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST);
+  restoreEnv('NODE_ENV', originalEnv.NODE_ENV);
   rmSync(stateDir, { recursive: true, force: true });
 }, routeHookTimeoutMs);
 
@@ -476,8 +491,70 @@ describe('broker routes', () => {
     const fallbackAllowed = await app.inject({ method: 'OPTIONS', url: '/api/history', headers: { origin: 'http://localhost:5180', 'access-control-request-method': 'GET' } });
     const denied = await app.inject({ method: 'OPTIONS', url: '/api/history', headers: { origin: 'https://evil.example', 'access-control-request-method': 'GET' } });
     expect(allowed.headers['access-control-allow-origin']).toBe('http://localhost:5173');
+    expect(allowed.headers['access-control-allow-credentials']).toBe('true');
     expect(fallbackAllowed.headers['access-control-allow-origin']).toBe('http://localhost:5180');
     expect(denied.headers['access-control-allow-origin']).toBeUndefined();
+  }, 30_000);
+
+  it('sets browser security headers on broker responses', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/history' });
+
+    expect(response.headers['content-security-policy']).toContain("frame-ancestors 'none'");
+    expect(response.headers['x-frame-options']).toBe('DENY');
+    expect(response.headers['x-content-type-options']).toBe('nosniff');
+    expect(response.headers['referrer-policy']).toBe('strict-origin-when-cross-origin');
+  }, 30_000);
+
+  it('rejects unsafe browser mutations from untrusted origins before touching settings', async () => {
+    const secret = 'sk-evil-origin-secret';
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/settings/llm',
+      headers: { origin: 'https://evil.example' },
+      payload: { provider: 'openai', apiKey: secret, model: 'gpt-4.1-mini', enabled: true }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.body).not.toContain(secret);
+    const status = await app.inject({ method: 'GET', url: '/api/settings/status' });
+    expect(status.json().llm).toMatchObject({ provider: 'mock', configured: false, keyConfigured: false });
+  }, 30_000);
+
+  it('allows unsafe browser mutations from configured trusted origins', async () => {
+    const secret = 'sk-trusted-origin-secret';
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/settings/llm',
+      headers: { origin: 'http://localhost:5173' },
+      payload: { provider: 'openai', apiKey: secret, model: 'gpt-4.1-mini', enabled: true }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).not.toContain(secret);
+    expect(response.json().status.llm).toMatchObject({ source: 'personal', configured: true, keyConfigured: true });
+  }, 30_000);
+
+  it('allows trusted Referer fallback but rejects untrusted Referer-only mutations', async () => {
+    const blockedSecret = 'sk-bad-referer-secret';
+    const blocked = await app.inject({
+      method: 'POST',
+      url: '/api/settings/llm',
+      headers: { referer: 'https://evil.example/settings' },
+      payload: { provider: 'openai', apiKey: blockedSecret, model: 'gpt-4.1-mini', enabled: true }
+    });
+    const allowedSecret = 'sk-good-referer-secret';
+    const allowed = await app.inject({
+      method: 'POST',
+      url: '/api/settings/llm',
+      headers: { referer: 'http://localhost:5173/settings' },
+      payload: { provider: 'openai', apiKey: allowedSecret, model: 'gpt-4.1-mini', enabled: true }
+    });
+
+    expect(blocked.statusCode).toBe(403);
+    expect(blocked.body).not.toContain(blockedSecret);
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.body).not.toContain(allowedSecret);
+    expect(allowed.json().status.llm).toMatchObject({ source: 'personal', configured: true, keyConfigured: true });
   }, 30_000);
 
   it('saves personal Atlassian settings server-side without returning the token', async () => {
@@ -534,6 +611,73 @@ describe('broker routes', () => {
     expect(save.body).not.toContain('env_token_1234567890');
     const status = await app.inject({ method: 'GET', url: '/api/settings/status' });
     expect(status.json().atlassian).toMatchObject({ source: 'environment', configured: true, siteUrl: 'https://env.atlassian.net' });
+  }, 30_000);
+
+  it('rejects Atlassian site URLs that could exfiltrate credentials through SSRF', async () => {
+    const token = 'token_ssrf_private';
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    const privateHost = await app.inject({
+      method: 'POST',
+      url: '/api/settings/atlassian',
+      payload: {
+        siteUrl: 'https://127.0.0.1',
+        email: 'user@example.com',
+        apiToken: token,
+        jiraProjectAllowlist: ['AKC'],
+        confluenceSpaceAllowlist: ['AKC']
+      }
+    });
+    const nonAtlassian = await app.inject({
+      method: 'POST',
+      url: '/api/settings/atlassian',
+      payload: {
+        siteUrl: 'https://evil.example',
+        email: 'user@example.com',
+        apiToken: token,
+        jiraProjectAllowlist: ['AKC'],
+        confluenceSpaceAllowlist: ['AKC']
+      }
+    });
+    const embeddedCredentials = await app.inject({
+      method: 'POST',
+      url: '/api/settings/atlassian',
+      payload: {
+        siteUrl: 'https://attacker:password@example.atlassian.net',
+        email: 'user@example.com',
+        apiToken: token,
+        jiraProjectAllowlist: ['AKC'],
+        confluenceSpaceAllowlist: ['AKC']
+      }
+    });
+
+    expect(privateHost.statusCode).toBe(400);
+    expect(nonAtlassian.statusCode).toBe(400);
+    expect(embeddedCredentials.statusCode).toBe(400);
+    expect(privateHost.body).not.toContain(token);
+    expect(nonAtlassian.body).not.toContain(token);
+    expect(embeddedCredentials.body).not.toContain(token);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const status = await app.inject({ method: 'GET', url: '/api/settings/status' });
+    expect(status.json().atlassian).toMatchObject({ source: 'none', configured: false, tokenConfigured: false });
+  }, 30_000);
+
+  it('allows explicitly allowlisted self-managed Atlassian hosts without weakening private-host rejection', async () => {
+    process.env.ATLASSIAN_SITE_HOST_ALLOWLIST = 'jira.example.com';
+
+    const save = await app.inject({
+      method: 'POST',
+      url: '/api/settings/atlassian',
+      payload: {
+        siteUrl: 'https://jira.example.com/wiki',
+        email: 'user@example.com',
+        apiToken: 'token_1234567890',
+        jiraProjectAllowlist: ['AKC'],
+        confluenceSpaceAllowlist: ['AKC']
+      }
+    });
+
+    expect(save.statusCode).toBe(200);
+    expect(save.json().status.atlassian).toMatchObject({ source: 'personal', siteUrl: 'https://jira.example.com', tokenConfigured: true });
   }, 30_000);
 
   it('tests saved Atlassian settings and stores validation state without returning the token', async () => {
@@ -632,6 +776,22 @@ describe('broker routes', () => {
         atlassian: { source: 'none', configured: false, tokenConfigured: false }
       }
     });
+  }, 30_000);
+
+  it('fails closed on production secret encryption without a managed key', async () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.AKC_CREDENTIAL_ENCRYPTION_KEY;
+    const secret = 'sk-production-must-use-managed-key';
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/settings/llm',
+      payload: { provider: 'openai', apiKey: secret, model: 'gpt-4.1-mini', enabled: true }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body).not.toContain(secret);
+    expect(response.json().error).toContain('AKC_CREDENTIAL_ENCRYPTION_KEY');
   }, 30_000);
 
   it('saves personal OpenAI, Claude, and OpenRouter LLM settings without returning API keys', async () => {

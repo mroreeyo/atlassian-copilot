@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockHistory, mockSettingsStatus } from '@akc/shared/mock';
@@ -118,7 +118,12 @@ vi.mock('../services/copilot/brokerCopilotClient', () => ({
 
 function renderWithQuery(ui: ReactElement) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+  return { queryClient, ...render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>) };
+}
+
+function expectMutationCacheNotToContain(queryClient: QueryClient, secret: string) {
+  const mutationCacheSnapshot = queryClient.getMutationCache().getAll().map((mutation) => mutation.state);
+  expect(JSON.stringify(mutationCacheSnapshot)).not.toContain(secret);
 }
 
 describe('support pages', () => {
@@ -167,7 +172,7 @@ describe('support pages', () => {
 
   it('saves Atlassian personal settings and clears the token field', async () => {
     const user = userEvent.setup();
-    renderWithQuery(<SettingsPage />);
+    const { queryClient } = renderWithQuery(<SettingsPage />);
 
     await user.clear(await screen.findByLabelText('사이트 URL'));
     await user.type(screen.getByLabelText('사이트 URL'), 'https://example.atlassian.net');
@@ -195,6 +200,7 @@ describe('support pages', () => {
     expect(await screen.findByText('Atlassian 연결 테스트를 통과했습니다.')).toBeInTheDocument();
     expect(screen.getByText('검증됨').closest('.status-card')).toHaveClass('active');
     expect(testAtlassianSettings).toHaveBeenCalledTimes(1);
+    await waitFor(() => expectMutationCacheNotToContain(queryClient, 'token_1234567890'));
   });
 
   it('shows a clear validation message instead of silently ignoring invalid settings', async () => {
@@ -217,7 +223,7 @@ describe('support pages', () => {
 
   it('saves and tests personal LLM settings and clears the key field', async () => {
     const user = userEvent.setup();
-    renderWithQuery(<SettingsPage />);
+    const { queryClient } = renderWithQuery(<SettingsPage />);
 
     await user.selectOptions(await screen.findByLabelText('LLM 제공자'), 'openrouter');
     await user.type(screen.getByLabelText('LLM API 키'), 'sk-or-personal-secret');
@@ -258,6 +264,7 @@ describe('support pages', () => {
     expect(await screen.findByText('OpenRouter 연결 테스트를 통과했습니다.')).toBeInTheDocument();
     expect(screen.getByText('OpenRouter 연결됨').closest('.status-card')).toHaveClass('active');
     expect(testLlmSettings).toHaveBeenCalledTimes(1);
+    await waitFor(() => expectMutationCacheNotToContain(queryClient, 'sk-or-personal-secret'));
   });
 
   it('keeps saved disabled LLM settings disabled after status hydration', async () => {

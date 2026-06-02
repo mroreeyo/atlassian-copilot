@@ -1,4 +1,5 @@
 import type { AtlassianConnectionStatus, AtlassianSettingsRequest } from '@akc/shared';
+import { isIP } from 'node:net';
 import { decryptSecret, encryptSecret, readJsonProfile, removeJsonProfile, writeJsonProfile, type EncryptedSecret } from './credentialStore.js';
 export { resolveStateDir } from './credentialStore.js';
 
@@ -88,10 +89,11 @@ export function savePersonalAtlassianSettings(input: AtlassianSettingsRequest, e
   if (!apiToken) {
     throw new Error('개인 Atlassian 설정을 저장하려면 API 토큰이 필요합니다.');
   }
+  const siteUrl = normalizeSiteUrl(input.siteUrl, env);
 
   const profile: StoredAtlassianProfile = {
     version: 1,
-    siteUrl: input.siteUrl.trim(),
+    siteUrl,
     email: input.email.trim(),
     apiToken: encryptSecret(apiToken, env),
     allowedJiraProjects: normalizeAllowlist(input.jiraProjectAllowlist, defaultJiraProjects),
@@ -122,13 +124,20 @@ export function recordPersonalAtlassianValidation(result: AtlassianValidationRes
   writeJsonProfile(profileFileName, updated, env);
 }
 
-export async function testResolvedAtlassianConnection(credentials: ResolvedAtlassianCredentials): Promise<AtlassianValidationResult> {
+export async function testResolvedAtlassianConnection(credentials: ResolvedAtlassianCredentials, env = process.env): Promise<AtlassianValidationResult> {
   if (!credentials.siteUrl || !credentials.email || !credentials.apiToken) {
     return { ok: false, message: '테스트할 수 있는 Atlassian 연결 정보가 없습니다.' };
   }
 
+  let siteUrl: string;
   try {
-    const response = await fetch(`${normalizeSiteUrl(credentials.siteUrl)}/rest/api/3/myself`, {
+    siteUrl = normalizeSiteUrl(credentials.siteUrl, env);
+  } catch {
+    return { ok: false, message: '허용되지 않은 Atlassian 사이트 URL입니다. Atlassian Cloud 또는 서버 allowlist에 등록된 HTTPS 호스트만 테스트할 수 있습니다.' };
+  }
+
+  try {
+    const response = await fetch(`${siteUrl}/rest/api/3/myself`, {
       method: 'GET',
       headers: {
         Accept: 'application/json',
@@ -171,8 +180,50 @@ function atlassianStatusMessage(source: 'personal' | 'environment', tokenConfigu
     : 'Atlassian 연결이 저장되었습니다. 연결 테스트로 조회 가능 여부를 확인하세요.';
 }
 
-function normalizeSiteUrl(raw: string): string {
+export function normalizeAtlassianSiteUrl(raw: string | undefined, env = process.env): string {
+  const siteUrl = raw?.trim();
+  if (!siteUrl) throw new Error('Atlassian site URL is missing.');
+  return normalizeSiteUrl(siteUrl, env);
+}
+
+function normalizeSiteUrl(raw: string, env = process.env): string {
   const parsed = new URL(raw.trim());
   if (parsed.protocol !== 'https:') throw new Error('Atlassian site URL must use https.');
+  if (parsed.username || parsed.password) throw new Error('Atlassian site URL must not include credentials.');
+  const host = parsed.hostname.toLowerCase();
+  if (isInternalOrIpHost(host)) throw new Error('Atlassian site URL host is not allowed.');
+  if (!isAtlassianCloudHost(host) && !isAllowlistedAtlassianHost(host, env)) {
+    throw new Error('Atlassian site URL must be an Atlassian Cloud host or an explicit allowlisted host.');
+  }
   return parsed.origin;
+}
+
+function isAtlassianCloudHost(host: string): boolean {
+  return host === 'atlassian.net' || host.endsWith('.atlassian.net');
+}
+
+function isAllowlistedAtlassianHost(host: string, env = process.env): boolean {
+  const entries = (
+    env.ATLASSIAN_SITE_HOST_ALLOWLIST
+    ?? env.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST
+    ?? env.AKC_ATLASSIAN_ALLOWED_HOSTS
+    ?? env.AKC_ATLASSIAN_HOST_ALLOWLIST
+    ?? ''
+  )
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+  return entries.some((entry) => {
+    if (entry.startsWith('.')) return host.endsWith(entry);
+    return host === entry;
+  });
+}
+
+function isInternalOrIpHost(host: string): boolean {
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return true;
+  const ipVersion = isIP(host);
+  if (ipVersion === 6) return true;
+  if (ipVersion === 4) return true;
+  if (!host.includes('.')) return true;
+  return false;
 }

@@ -42,7 +42,13 @@ describe('route freeze', () => {
     expect(screen.queryByRole('link', { name: /dashboard/i })).not.toBeInTheDocument();
   });
 
+  it('keeps the public Copilot demo route available without an auth gate', async () => {
+    renderApp('/copilot');
 
+    expect(await screen.findByRole('heading', { name: 'Atlassian 코파일럿' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Atlassian 코파일럿 프롬프트' })).toBeInTheDocument();
+    expect(screen.queryByText(/로그인|sign in|authenticate|권한/i)).not.toBeInTheDocument();
+  });
 
   it('lets users switch between dark and light screen modes from the main navigation', async () => {
     const user = userEvent.setup();
