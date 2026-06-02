@@ -5,6 +5,10 @@ import {
   AtlassianSettingsRequestSchema,
   AtlassianSettingsResponseSchema,
   AtlassianSettingsTestResponseSchema,
+  AuthLoginRequestSchema,
+  AuthLogoutResponseSchema,
+  AuthSessionResponseSchema,
+  AuthSignupRequestSchema,
   CopilotSuggestionsResponseSchema,
   CopilotSseEventSchema,
   LlmSettingsClearResponseSchema,
@@ -22,6 +26,10 @@ import {
   type AtlassianSettingsRequest,
   type AtlassianSettingsResponse,
   type AtlassianSettingsTestResponse,
+  type AuthLoginRequest,
+  type AuthLogoutResponse,
+  type AuthSessionResponse,
+  type AuthSignupRequest,
   type CopilotSseEvent,
   type CopilotSuggestionsResponse,
   type HistoryResponse,
@@ -47,6 +55,7 @@ function streamBrokerUrl(path: string): string {
 export async function createCopilotRun(request: RunCreateRequest): Promise<RunCreateResponse> {
   const response = await fetch(brokerUrl('/api/copilot/runs'), {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(request)
   });
@@ -83,7 +92,7 @@ export async function getHistory(): Promise<HistoryResponse> {
 }
 
 export async function getCopilotSuggestions(): Promise<CopilotSuggestionsResponse> {
-  const response = await fetch(brokerUrl('/api/copilot/suggestions'), { headers: { Accept: 'application/json' } });
+  const response = await fetch(brokerUrl('/api/copilot/suggestions'), { credentials: 'include', headers: { Accept: 'application/json' } });
   if (!response.ok) throw new Error(`서버 추천 질문 조회가 실패했습니다. 상태 ${response.status}`);
   return CopilotSuggestionsResponseSchema.parse(await response.json());
 }
@@ -169,7 +178,7 @@ export async function testLlmSettings(): Promise<LlmSettingsTestResponse> {
 }
 
 export async function* streamCopilotEvents(streamUrl: string): AsyncGenerator<CopilotSseEvent> {
-  const response = await fetch(streamBrokerUrl(streamUrl), { headers: { Accept: 'text/event-stream' } });
+  const response = await fetch(streamBrokerUrl(streamUrl), { credentials: 'include', headers: { Accept: 'text/event-stream' } });
   if (!response.ok || !response.body) throw new Error(`서버 응답 스트림이 실패했습니다. 상태 ${response.status}`);
 
   const reader = response.body.getReader();
@@ -187,6 +196,50 @@ export async function* streamCopilotEvents(streamUrl: string): AsyncGenerator<Co
 
   buffer += decoder.decode();
   for (const event of decodeSseFrames(buffer)) yield event;
+}
+
+export async function signup(request: AuthSignupRequest): Promise<AuthSessionResponse> {
+  const payload = AuthSignupRequestSchema.parse(request);
+  const response = await fetch(brokerUrl('/api/auth/signup'), {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error(await brokerErrorMessage(response, '가입 실패'));
+  return AuthSessionResponseSchema.parse(await response.json());
+}
+
+export async function login(request: AuthLoginRequest): Promise<AuthSessionResponse> {
+  const payload = AuthLoginRequestSchema.parse(request);
+  const response = await fetch(brokerUrl('/api/auth/login'), {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error(await brokerErrorMessage(response, '로그인 실패'));
+  return AuthSessionResponseSchema.parse(await response.json());
+}
+
+export async function getAuthSession(): Promise<AuthSessionResponse | null> {
+  const response = await fetch(brokerUrl('/api/auth/session'), {
+    credentials: 'include',
+    headers: { Accept: 'application/json' }
+  });
+  if (response.status === 401) return null;
+  if (!response.ok) throw new Error(await brokerErrorMessage(response, '세션 조회 실패'));
+  return AuthSessionResponseSchema.parse(await response.json());
+}
+
+export async function logout(): Promise<AuthLogoutResponse> {
+  const response = await fetch(brokerUrl('/api/auth/logout'), {
+    method: 'POST',
+    credentials: 'include',
+    headers: { Accept: 'application/json' }
+  });
+  if (!response.ok) throw new Error(await brokerErrorMessage(response, '로그아웃 실패'));
+  return AuthLogoutResponseSchema.parse(await response.json());
 }
 
 export function decodeSseFrames(text: string): CopilotSseEvent[] {

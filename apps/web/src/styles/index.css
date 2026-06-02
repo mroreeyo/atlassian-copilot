@@ -98,8 +98,82 @@ button:disabled { cursor: not-allowed; opacity: 0.62; }
   border-color: rgb(var(--border));
   color: rgb(var(--text-primary));
 }
+.auth-nav {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(30, 41, 59, 0.72);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.18);
+  padding: 10px;
+}
+.auth-nav span {
+  color: rgb(var(--text-muted));
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.auth-nav a,
+.auth-nav button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border: 1px solid rgba(30, 41, 59, 0.88);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.66);
+  color: rgb(var(--text-secondary));
+  padding: 7px 9px;
+  font-size: 12px;
+}
+.auth-nav a:hover,
+.auth-nav button:hover {
+  border-color: rgba(147, 197, 253, 0.34);
+  color: rgb(var(--text-primary));
+}
 .shell-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .page { width: min(1120px, 100%); margin: 0 auto; padding: 24px; }
+.auth-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 20% 18%, rgba(147, 197, 253, 0.12), transparent 23rem),
+    radial-gradient(circle at 80% 82%, rgba(110, 231, 183, 0.08), transparent 20rem),
+    rgb(var(--background));
+}
+.auth-card {
+  width: min(460px, 100%);
+  display: grid;
+  gap: 16px;
+  border: 1px solid rgb(var(--border));
+  border-radius: 24px;
+  background: rgba(15, 23, 42, 0.86);
+  box-shadow: 0 28px 80px rgba(2, 6, 23, 0.42);
+  padding: 24px;
+}
+.auth-card h1 {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: -0.04em;
+}
+.auth-card p { margin: 0; color: rgb(var(--text-secondary)); line-height: 1.65; }
+.auth-demo-link, .auth-footer a { color: rgb(var(--accent-ai)); font-weight: 700; }
+.auth-form { display: grid; gap: 12px; }
+.auth-form label { display: grid; gap: 6px; color: rgb(var(--text-muted)); font-size: 12px; }
+.auth-form input {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(30, 41, 59, 0.92);
+  background: rgba(2, 6, 23, 0.5);
+  color: rgb(var(--text-primary));
+  padding: 11px 12px;
+}
+.auth-form input:focus {
+  outline: 1px solid rgba(147, 197, 253, 0.42);
+  border-color: rgba(147, 197, 253, 0.34);
+}
+.auth-footer { display: flex; gap: 6px; color: rgb(var(--text-muted)); font-size: 13px; }
 .copilot-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; align-items: start; }
 .copilot-grid.collapsed { grid-template-columns: minmax(0, 1fr); }
 .chat-column { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
