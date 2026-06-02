@@ -78,7 +78,7 @@ describe('route freeze', () => {
 
     expect(await screen.findByRole('heading', { name: 'Atlassian 코파일럿' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Atlassian 코파일럿 프롬프트' })).toBeInTheDocument();
-    expect(screen.queryByText(/로그인|sign in|authenticate|권한/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '로그인' })).not.toBeInTheDocument();
   });
 
   it('redirects unauthenticated History access to login', async () => {

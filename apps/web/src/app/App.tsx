@@ -1,19 +1,15 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { ProtectedRoute } from '../components/auth/ProtectedRoute';
 import { AppShell } from '../components/layout/AppShell';
-import { ProtectedRoute } from '../features/auth/ProtectedRoute';
 import { CopilotPage } from '../pages/CopilotPage';
 import { HistoryPage } from '../pages/HistoryPage';
 import { LoginPage } from '../pages/auth/LoginPage';
 import { SignupPage } from '../pages/auth/SignupPage';
 import { SettingsPage } from '../pages/SettingsPage';
-import { SignupPage } from '../pages/SignupPage';
 
 export function App() {
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/signup" element={<SignupPage />} />
       <Route element={<AppShell />}>
         <Route index element={<Navigate to="/copilot" replace />} />
         <Route path="/copilot" element={<CopilotPage />} />

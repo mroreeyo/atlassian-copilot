@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { ProductTour } from '../../features/onboarding/components/ProductTour';
-import { authSessionQueryKey, useAuthSession } from '../../features/auth/useAuthSession';
 import { useProductTourStore } from '../../features/onboarding/stores/productTourStore';
 import { authSessionQueryKey, getAuthSession, logout } from '../../services/auth/authClient';
 import { useUiStore } from '../../stores/uiStore';
@@ -53,26 +52,18 @@ export function AppShell() {
           <NavLink to="/history">기록</NavLink>
           <NavLink to="/settings">설정</NavLink>
         </nav>
-        <div className="auth-nav" aria-label="인증 상태">
-          {session.data?.user ? (
-            <>
-              <span>{session.data.user.email}</span>
-              <button type="button" onClick={() => logoutMutation.mutate()} disabled={logoutMutation.isPending}>로그아웃</button>
-            </>
-          ) : (
-            <>
-              <Link to="/login">로그인</Link>
-              <Link to="/signup">회원가입</Link>
-            </>
-          )}
-        </div>
         <div className="sidebar-helper">
           <p className="muted">질문하고, 참고한 항목을 확인하고, 필요한 변경은 실행 전에 검토합니다.</p>
           {user ? (
             <div className="auth-sidebar-card" aria-label="로그인 상태">
               <span className="badge success">로그인됨</span>
               <strong>{user.email}</strong>
-              <button className="theme-toggle-button" type="button" disabled={logoutMutation.isPending} onClick={() => logoutMutation.mutate()}>
+              <button
+                className="theme-toggle-button"
+                type="button"
+                disabled={logoutMutation.isPending}
+                onClick={() => logoutMutation.mutate()}
+              >
                 {logoutMutation.isPending ? '로그아웃 중' : '로그아웃'}
               </button>
             </div>

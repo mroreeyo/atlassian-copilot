@@ -1,11 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { getAuthSession, login, logout, signup } from '../services/auth/authClient';
+import type * as AuthClient from '../services/auth/authClient';
 
-const fetchMock = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>();
+let getAuthSession: typeof AuthClient.getAuthSession;
+let login: typeof AuthClient.login;
+let logout: typeof AuthClient.logout;
+let signup: typeof AuthClient.signup;
 
-beforeEach(() => {
+const fetchMock = vi.fn<(...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>>();
+
+beforeEach(async () => {
+  vi.unstubAllEnvs();
+  vi.resetModules();
   fetchMock.mockReset();
   vi.stubGlobal('fetch', fetchMock);
+  ({ getAuthSession, login, logout, signup } = await import('../services/auth/authClient'));
 });
 
 describe('auth client', () => {
