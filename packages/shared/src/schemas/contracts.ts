@@ -297,3 +297,33 @@ export const HistoryResponseSchema = z.object({
     status: z.enum(['completed', 'failed', 'running'])
   }))
 });
+
+export const AuthUserSchema = z.object({
+  email: z.string().email(),
+  createdAt: z.string().trim().min(1)
+});
+
+const PasswordSchema = z.string()
+  .min(10, '비밀번호는 10자 이상이어야 합니다.')
+  .max(128, '비밀번호는 128자 이하여야 합니다.')
+  .regex(/[a-z]/, '비밀번호에는 영문 소문자가 필요합니다.')
+  .regex(/[A-Z]/, '비밀번호에는 영문 대문자가 필요합니다.')
+  .regex(/[0-9]/, '비밀번호에는 숫자가 필요합니다.');
+
+export const AuthSignupRequestSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  password: PasswordSchema
+});
+
+export const AuthLoginRequestSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  password: z.string().min(1).max(128)
+});
+
+export const AuthSessionResponseSchema = z.object({
+  user: AuthUserSchema
+});
+
+export const AuthLogoutResponseSchema = z.object({
+  ok: z.literal(true)
+});

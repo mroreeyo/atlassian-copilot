@@ -322,3 +322,26 @@ export interface HistoryResponse {
     status: 'completed' | 'failed' | 'running';
   }>;
 }
+
+export interface AuthUser {
+  email: string;
+  createdAt: string;
+}
+
+export interface AuthSignupRequest {
+  email: string;
+  password: string;
+}
+
+export interface AuthLoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface AuthSessionResponse {
+  user: AuthUser;
+}
+
+export interface AuthLogoutResponse {
+  ok: true;
+}

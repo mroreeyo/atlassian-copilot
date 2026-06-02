@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import { registerAuthRoutes } from './routes/auth.js';
 import { registerCopilotRoutes } from './routes/copilot.js';
 import { getAllowedOrigins, isSafeBrowserMutationSource, securityHeaders } from './config/security.js';
 
@@ -14,6 +15,7 @@ export function buildApp() {
     if (isSafeBrowserMutationSource(origin, referer)) return;
     return reply.code(403).send({ error: '허용되지 않은 브라우저 출처의 변경 요청입니다.' });
   });
+  registerAuthRoutes(app);
   registerCopilotRoutes(app);
   return app;
 }

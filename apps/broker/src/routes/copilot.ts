@@ -23,12 +23,14 @@ import { buildSettingsStatus } from '../services/settings/settingsStatus.js';
 import { testConfiguredLlmConnection } from '../services/llm/llmProviderFactory.js';
 import { clearLlmModelCatalogCache, getLlmProviderModels } from '../services/llm/modelCatalog.js';
 import { buildCopilotSuggestions } from '../services/suggestions/copilotSuggestions.js';
+import { currentAuthUser, requireAuth } from '../services/auth/sessionCookie.js';
 
 export function registerCopilotRoutes(app: FastifyInstance): void {
   app.post('/api/copilot/runs', async (request, reply) => {
     const parsed = RunCreateRequestSchema.parse(request.body);
+    const user = currentAuthUser(request);
     const runId = `run_${randomUUID().slice(0, 8)}`;
-    storeRun({ runId, message: parsed.message, mode: parsed.mode });
+    storeRun({ runId, message: parsed.message, mode: user ? parsed.mode : 'mock' });
     return reply.send({ runId, streamUrl: `/api/copilot/runs/${runId}/stream` });
   });
 
@@ -51,6 +53,7 @@ export function registerCopilotRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/copilot/actions/:id/approve', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
     const { id } = request.params as { id: string };
     const body = ActionApprovalRequestSchema.parse(request.body);
     const found = findActionReview(id);
@@ -101,6 +104,7 @@ export function registerCopilotRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/copilot/actions/:id/cancel', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
     const { id } = request.params as { id: string };
     const body = ActionCancelRequestSchema.parse(request.body);
     const found = findActionReview(id);
@@ -125,15 +129,22 @@ export function registerCopilotRoutes(app: FastifyInstance): void {
     return reply.send(response);
   });
 
-  app.get('/api/history', async (_request, reply) => reply.send({ runs: [] }));
+  app.get('/api/history', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
+    return reply.send({ runs: [] });
+  });
 
   app.get('/api/copilot/suggestions', async (_request, reply) => {
     return reply.send(CopilotSuggestionsResponseSchema.parse(buildCopilotSuggestions()));
   });
 
-  app.get('/api/settings/status', async (_request, reply) => reply.send(buildSettingsStatus()));
+  app.get('/api/settings/status', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
+    return reply.send(buildSettingsStatus());
+  });
 
   app.post('/api/settings/atlassian', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
     const parsed = AtlassianSettingsRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'Atlassian 설정 형식이 올바르지 않습니다.' });
     try {
@@ -147,7 +158,8 @@ export function registerCopilotRoutes(app: FastifyInstance): void {
     });
   });
 
-  app.delete('/api/settings/atlassian', async (_request, reply) => {
+  app.delete('/api/settings/atlassian', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
     clearPersonalAtlassianSettings();
     return reply.send({
       status: buildSettingsStatus(),
@@ -155,7 +167,8 @@ export function registerCopilotRoutes(app: FastifyInstance): void {
     });
   });
 
-  app.post('/api/settings/atlassian/test', async (_request, reply) => {
+  app.post('/api/settings/atlassian/test', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
     const before = readResolvedAtlassianCredentials();
     if (!before.configured || !before.apiToken) {
       const message = '테스트할 수 있는 Atlassian 연결 정보가 없습니다. 사이트 URL, 이메일, API 토큰을 저장한 뒤 테스트하세요.';
@@ -183,6 +196,7 @@ export function registerCopilotRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/settings/llm', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
     const parsed = LlmSettingsRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'LLM 설정 형식이 올바르지 않습니다.' });
     try {
@@ -197,7 +211,8 @@ export function registerCopilotRoutes(app: FastifyInstance): void {
     });
   });
 
-  app.delete('/api/settings/llm', async (_request, reply) => {
+  app.delete('/api/settings/llm', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
     clearPersonalLlmSettings();
     clearLlmModelCatalogCache();
     return reply.send({
@@ -208,6 +223,7 @@ export function registerCopilotRoutes(app: FastifyInstance): void {
 
 
   app.get('/api/settings/llm/providers/:provider/models', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
     const { provider } = request.params as { provider: string };
     const parsed = LlmProviderSchema.safeParse(provider);
     if (!parsed.success) return reply.code(400).send({ error: '지원하지 않는 LLM 제공자입니다.' });
@@ -217,7 +233,8 @@ export function registerCopilotRoutes(app: FastifyInstance): void {
     return reply.send(response);
   });
 
-  app.post('/api/settings/llm/test', async (_request, reply) => {
+  app.post('/api/settings/llm/test', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
     const before = readResolvedLlmSettings();
     const runtimeConfig = getLlmRuntimeConfig();
     if (!runtimeConfig) {
