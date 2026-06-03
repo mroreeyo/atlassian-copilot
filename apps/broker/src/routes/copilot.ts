@@ -30,6 +30,7 @@ export function registerCopilotRoutes(app: FastifyInstance): void {
   app.post('/api/copilot/runs', async (request, reply) => {
     const parsed = RunCreateRequestSchema.parse(request.body);
     const session = currentAuthSession(request);
+    if (session && !requireCsrf(request, reply, session)) return;
     const runId = `run_${randomUUID().slice(0, 8)}`;
     storeRun({ runId, message: parsed.message, mode: session ? parsed.mode : 'mock', userId: session?.user.id ?? null });
     return reply.send({ runId, streamUrl: `/api/copilot/runs/${runId}/stream` });

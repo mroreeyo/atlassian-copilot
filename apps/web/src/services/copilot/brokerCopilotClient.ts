@@ -57,7 +57,7 @@ export async function createCopilotRun(request: RunCreateRequest): Promise<RunCr
   const response = await fetch(brokerUrl('/api/copilot/runs'), {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...csrfHeader() },
     body: JSON.stringify(request)
   });
   if (!response.ok) throw new Error(`서버 실행 생성이 실패했습니다. 상태 ${response.status}`);

@@ -8,10 +8,12 @@ import { sanitizeGoogleReturnTo } from '../config/googleAuth.js';
 
 export function registerAuthRoutes(app: FastifyInstance): void {
   app.get('/api/auth/config', async (_request, reply) => {
+    setNoStore(reply);
     return reply.send({ googleEnabled: googleAuthConfigured(), localAuthEnabled: isLocalAuthEnabled() });
   });
 
   app.post('/api/auth/signup', async (request, reply) => {
+    setNoStore(reply);
     const parsed = AuthSignupRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? '가입 정보가 올바르지 않습니다.' });
     try {
@@ -25,6 +27,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/auth/login', async (request, reply) => {
+    setNoStore(reply);
     const parsed = AuthLoginRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: '이메일 또는 비밀번호가 올바르지 않습니다.' });
     try {
@@ -38,12 +41,14 @@ export function registerAuthRoutes(app: FastifyInstance): void {
   });
 
   app.get('/api/auth/session', async (request, reply) => {
+    setNoStore(reply);
     const session = currentAuthSession(request);
     if (!session) return reply.code(401).send({ error: '로그인이 필요합니다.' });
     return reply.send(AuthSessionResponseSchema.parse({ user: session.user, csrfToken: issueCsrfToken(session) }));
   });
 
   app.post('/api/auth/logout', async (request, reply) => {
+    setNoStore(reply);
     const session = currentAuthSession(request);
     if (!session) return reply.code(401).send({ error: '로그인이 필요합니다.' });
     if (!requireCsrf(request, reply, session)) return;
@@ -84,6 +89,10 @@ export function registerAuthRoutes(app: FastifyInstance): void {
       return reply.redirect(`/login?authError=${encodeURIComponent(safeGoogleCallbackError(error))}`, 302);
     }
   });
+}
+
+function setNoStore(reply: { header: (name: string, value: string) => unknown }): void {
+  reply.header('Cache-Control', 'no-store');
 }
 
 const oauthTransactionCookieName = 'akc_oauth_tx';

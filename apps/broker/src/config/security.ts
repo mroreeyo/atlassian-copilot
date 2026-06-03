@@ -23,7 +23,7 @@ export function isAllowedBrowserOrigin(origin: string | undefined, env = process
 }
 
 export function isSafeBrowserMutationSource(origin: string | undefined, referer: string | undefined, env = process.env): boolean {
-  if (!origin && !referer) return true;
+  if (!origin && !referer) return env.NODE_ENV !== 'production' && env.AKC_ALLOW_SOURCELESS_MUTATIONS === 'true';
   if (isAllowedBrowserOrigin(origin, env)) return true;
   if (!referer) return false;
   try {
