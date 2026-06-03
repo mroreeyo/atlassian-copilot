@@ -28,8 +28,8 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     const parsed = AuthLoginRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: '이메일 또는 비밀번호가 올바르지 않습니다.' });
     try {
+      const session = await loginLocalUser(parsed.data, authRateLimitKey(request.ip));
       rotateRequestSession(request);
-      const session = await loginLocalUser(parsed.data, authRateLimitKey(request.ip, request.headers['x-forwarded-for']));
       setSessionCookie(reply, request, session.sessionId);
       return reply.send(AuthSessionResponseSchema.parse({ user: session.user, csrfToken: session.csrfToken }));
     } catch (error) {
@@ -71,13 +71,13 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     clearOAuthTransactionCookie(reply);
     if (query.error) return reply.redirect(`/login?authError=${encodeURIComponent('google_denied')}`, 302);
     try {
-      rotateRequestSession(request);
       const callbackInput: { code?: string; state?: string; browserBinding?: string } = {};
       if (query.code) callbackInput.code = query.code;
       if (query.state) callbackInput.state = query.state;
       const browserBinding = readOAuthTransactionCookie(request);
       if (browserBinding) callbackInput.browserBinding = browserBinding;
       const result = await completeGoogleOidcCallback(callbackInput);
+      rotateRequestSession(request);
       setSessionCookie(reply, request, result.session.sessionId);
       return reply.redirect(result.returnTo, 302);
     } catch (error) {
@@ -136,9 +136,8 @@ function safeGoogleCallbackError(error: unknown): string {
   return 'google_callback_failed';
 }
 
-function authRateLimitKey(ip: string, forwarded: string | string[] | undefined): string {
-  const firstForwarded = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  return (firstForwarded?.split(',')[0]?.trim() || ip || 'unknown').slice(0, 128);
+function authRateLimitKey(ip: string): string {
+  return (ip || 'unknown').slice(0, 128);
 }
 
 function authErrorReply(reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } }, error: unknown, fallback: string) {

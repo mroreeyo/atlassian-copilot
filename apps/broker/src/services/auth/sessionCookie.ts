@@ -13,6 +13,7 @@ export function readCookieAlias(request: FastifyRequest, name: string): string |
 }
 
 export function readSessionCookie(request: FastifyRequest): string | undefined {
+  if (process.env.NODE_ENV === 'production') return readCookie(request, `__Host-${authCookieName}`);
   return readCookieAlias(request, authCookieName);
 }
 
@@ -108,7 +109,12 @@ function parseCookieHeader(header: string | undefined): Map<string, string> {
     if (index <= 0) continue;
     const key = part.slice(0, index).trim();
     const value = part.slice(index + 1).trim();
-    if (key) cookies.set(key, decodeURIComponent(value));
+    if (!key) continue;
+    try {
+      cookies.set(key, decodeURIComponent(value));
+    } catch {
+      // Ignore malformed percent-encoded cookie values instead of failing the request.
+    }
   }
   return cookies;
 }
