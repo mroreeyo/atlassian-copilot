@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMockRunEvents, mockHistory, mockSettingsStatus } from '@akc/shared/mock';
-import { approveAction, cancelAction, clearAtlassianSettings, clearLlmSettings, createCopilotRun, decodeSseFrames, getCopilotSuggestions, getHistory, getLlmProviderModels, getSettingsStatus, saveAtlassianSettings, saveLlmSettings, streamCopilotEvents, testAtlassianSettings, testLlmSettings } from '../services/copilot/brokerCopilotClient';
+import { clearAtlassianSettings, clearLlmSettings, createCopilotRun, decodeSseFrames, getCopilotSuggestions, getHistory, getLlmProviderModels, getSettingsStatus, saveAtlassianSettings, saveLlmSettings, streamCopilotEvents, testAtlassianSettings, testLlmSettings } from '../services/copilot/brokerCopilotClient';
 import { clearMemoryCsrfToken, setMemoryCsrfToken } from '../services/auth/csrfToken';
 
 function toSse(events: unknown[]): string {
@@ -30,6 +30,7 @@ function expectCsrfHeader(init: RequestInit | undefined, value: string): void {
 
 describe('Broker Copilot client', () => {
   afterEach(() => {
+    clearMemoryCsrfToken();
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     clearMemoryCsrfToken();
@@ -70,6 +71,19 @@ describe('Broker Copilot client', () => {
     }));
     expect(streamed.map((event) => event.type)).toContain('run.completed');
     expect(streamed.map((event) => event.type)).not.toContain('report_draft.completed');
+  });
+
+  it('sends the memory CSRF token when creating authenticated runs', async () => {
+    setMemoryCsrfToken('csrf-run-token');
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      runId: 'run_csrf',
+      streamUrl: '/api/copilot/runs/run_csrf/stream'
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+
+    await expect(createCopilotRun({ message: 'hello', mode: 'readonly' })).resolves.toMatchObject({ runId: 'run_csrf' });
+    expect(fetchMock).toHaveBeenCalledWith('/api/copilot/runs', expect.objectContaining({
+      headers: expect.objectContaining({ 'X-CSRF-Token': 'csrf-run-token' })
+    }));
   });
 
   it('handles chunked SSE frames without losing events', async () => {

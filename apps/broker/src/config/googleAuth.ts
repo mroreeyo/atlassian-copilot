@@ -72,9 +72,7 @@ export function googleAuthStorageDisabledReason(env = process.env): string | und
   } catch {
     return 'google_auth_secure_storage_invalid';
   }
-  if (!isProductionHttpsUrl(env.AKC_AUTH_BASE_URL?.trim())) return 'google_auth_production_url_required';
-  const redirectUri = env.GOOGLE_REDIRECT_URI?.trim();
-  if (redirectUri && !isProductionHttpsUrl(redirectUri)) return 'google_auth_production_url_required';
+  if (!env.AKC_BROKER_STATE_DIR?.trim() && !env.AKC_AUTH_DB_PATH?.trim()) return 'google_auth_persistent_state_required';
   return undefined;
 }
 
@@ -91,11 +89,19 @@ function stripTrailingSlash(value: string): string {
   return value.endsWith('/') ? value.slice(0, -1) : value;
 }
 
-function isProductionHttpsUrl(value: string | undefined): boolean {
-  if (!value) return false;
+function googleAuthProductionDisabledReason(authBaseUrl: string, redirectUri: string, env = process.env): string | undefined {
+  const storageDisabledReason = googleAuthStorageDisabledReason(env);
+  if (storageDisabledReason) return storageDisabledReason;
+  if (env.NODE_ENV !== 'production') return undefined;
+  if (!isProductionHttpsUrl(authBaseUrl) || !isProductionHttpsUrl(redirectUri)) return 'google_auth_production_url_required';
+  return undefined;
+}
+
+function isProductionHttpsUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
-    return parsed.protocol === 'https:' && parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1' && parsed.hostname !== '::1';
+    const hostname = parsed.hostname.toLowerCase();
+    return parsed.protocol === 'https:' && hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '[::1]' && hostname !== '::1';
   } catch {
     return false;
   }
