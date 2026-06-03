@@ -37,6 +37,7 @@ export interface OAuthTransactionStart {
 export interface ConsumedOAuthTransaction {
   id: string;
   nonce: string;
+  codeVerifier: string;
   codeChallenge: string;
   returnTo: string;
 }
