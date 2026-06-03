@@ -3,6 +3,7 @@ import type * as AuthClient from '../services/auth/authClient';
 
 let buildGoogleLoginStartUrl: typeof AuthClient.buildGoogleLoginStartUrl;
 let currentCsrfTokenForTest: typeof AuthClient.currentCsrfTokenForTest;
+let getAuthConfig: typeof AuthClient.getAuthConfig;
 let getAuthSession: typeof AuthClient.getAuthSession;
 let login: typeof AuthClient.login;
 let logout: typeof AuthClient.logout;
@@ -15,10 +16,17 @@ beforeEach(async () => {
   vi.resetModules();
   fetchMock.mockReset();
   vi.stubGlobal('fetch', fetchMock);
-  ({ buildGoogleLoginStartUrl, currentCsrfTokenForTest, getAuthSession, login, logout, signup } = await import('../services/auth/authClient'));
+  ({ buildGoogleLoginStartUrl, currentCsrfTokenForTest, getAuthConfig, getAuthSession, login, logout, signup } = await import('../services/auth/authClient'));
 });
 
 describe('auth client', () => {
+  it('reads Broker auth config before advertising Google auth', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ googleEnabled: false, localAuthEnabled: true }), { status: 200 }));
+
+    await expect(getAuthConfig()).resolves.toEqual({ googleEnabled: false, localAuthEnabled: true });
+    expect(fetchMock).toHaveBeenCalledWith('/api/auth/config', expect.objectContaining({ credentials: 'include' }));
+  });
+
   it('checks the session with cookie credentials and treats 401 as signed out', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 }));
 

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { ProductTour } from '../../features/onboarding/components/ProductTour';
 import { useProductTourStore } from '../../features/onboarding/stores/productTourStore';
-import { authSessionQueryKey, getAuthSession, logout, startGoogleLogin } from '../../services/auth/authClient';
+import { authConfigQueryKey, authSessionQueryKey, getAuthConfig, getAuthSession, logout, startGoogleLogin } from '../../services/auth/authClient';
 import { useUiStore } from '../../stores/uiStore';
 
 export function AppShell() {
@@ -17,7 +17,9 @@ export function AppShell() {
   const initializeDemoMode = useUiStore((state) => state.initializeDemoMode);
   const toggleThemeMode = useUiStore((state) => state.toggleThemeMode);
   const sessionQuery = useQuery({ queryKey: authSessionQueryKey, queryFn: getAuthSession, staleTime: 30_000 });
+  const authConfigQuery = useQuery({ queryKey: authConfigQueryKey, queryFn: getAuthConfig, staleTime: 60_000 });
   const user = sessionQuery.data?.user ?? null;
+  const googleAuth = authConfigQuery.data?.googleEnabled === true;
   const logoutMutation = useMutation({
     mutationFn: logout,
     onSuccess: () => {
@@ -70,7 +72,7 @@ export function AppShell() {
           ) : (
             <div className="auth-sidebar-card" aria-label="로그인 안내">
               <span className="badge warning">기록·설정 보호됨</span>
-              <button className="btn primary" type="button" onClick={() => startGoogleLogin('/settings')}>Google로 계속하기</button>
+              {googleAuth ? <button className="btn primary" type="button" onClick={() => startGoogleLogin('/settings')}>Google로 계속하기</button> : null}
               <NavLink className="btn subtle" to="/login">로그인 옵션</NavLink>
               <NavLink className="btn subtle" to="/signup">가입 안내</NavLink>
             </div>

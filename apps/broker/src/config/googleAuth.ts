@@ -19,14 +19,12 @@ export function googleAuthConfig(env = process.env): GoogleAuthConfig {
   const clientId = env.GOOGLE_CLIENT_ID?.trim() ?? '';
   const clientSecret = env.GOOGLE_CLIENT_SECRET?.trim() ?? '';
   const enabledFlag = env.AKC_ENABLE_GOOGLE_AUTH === 'true';
-  const readiness = googleAuthReadiness(env);
+  const storageDisabledReason = googleAuthStorageDisabledReason(env);
   const disabledReason = !enabledFlag
     ? 'google_auth_disabled'
     : !clientId || !clientSecret
       ? 'google_auth_misconfigured'
-      : !readiness.ready
-        ? readiness.reason
-        : undefined;
+      : storageDisabledReason;
 
   return {
     enabled: !disabledReason,
@@ -44,13 +42,11 @@ export function sanitizeGoogleReturnTo(input: unknown): string {
   if (typeof input !== 'string') return defaultReturnTo;
   const trimmed = input.trim();
   if (!trimmed || trimmed.length > 512) return defaultReturnTo;
-  if (/[\u0000-\u001f\u007f\\]/.test(trimmed)) return defaultReturnTo;
+  if (hasUnsafePathChars(trimmed)) return defaultReturnTo;
   if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed) || trimmed.startsWith('//')) return defaultReturnTo;
 
   const decoded = decodePossiblyEncoded(trimmed);
-  if (decoded !== trimmed && (/^[a-z][a-z0-9+.-]*:/i.test(decoded) || decoded.startsWith('//') || decoded.includes('\\'))) {
-    return defaultReturnTo;
-  }
+  if (decoded !== trimmed && (/^[a-z][a-z0-9+.-]*:/i.test(decoded) || decoded.startsWith('//') || decoded.includes('\\'))) return defaultReturnTo;
 
   try {
     const parsed = new URL(trimmed, 'http://akc.local');
@@ -66,24 +62,24 @@ export function sanitizeGoogleReturnTo(input: unknown): string {
   }
 }
 
+export function googleAuthStorageDisabledReason(env = process.env): string | undefined {
+  if (env.NODE_ENV !== 'production') return undefined;
+  const configuredKey = env.AKC_CREDENTIAL_ENCRYPTION_KEY?.trim();
+  if (!configuredKey) return 'google_auth_secure_storage_required';
+  try {
+    return Buffer.from(configuredKey, 'base64').length === 32 ? undefined : 'google_auth_secure_storage_invalid';
+  } catch {
+    return 'google_auth_secure_storage_invalid';
+  }
+}
+
 export function googleAuthDisabledPayload(config = googleAuthConfig()): { error: string; reason: string } {
   return { error: 'Google 로그인은 아직 사용할 수 없습니다.', reason: config.disabledReason ?? 'google_auth_disabled' };
 }
 
-function googleAuthReadiness(env: NodeJS.ProcessEnv): { ready: boolean; reason?: string } {
-  const required = [
-    ['AKC_AUTH_DB_FOUNDATION_READY', env.AKC_AUTH_DB_FOUNDATION_READY],
-    ['AKC_AUTH_DB_SESSIONS_READY', env.AKC_AUTH_DB_SESSIONS_READY],
-    ['AKC_AUTH_CSRF_READY', env.AKC_AUTH_CSRF_READY],
-    ['AKC_AUTH_USER_ISOLATION_READY', env.AKC_AUTH_USER_ISOLATION_READY]
-  ] as const;
-  const missing = required.find(([, value]) => value !== 'true')?.[0];
-  return missing ? { ready: false, reason: `missing_readiness_gate:${missing}` } : { ready: true };
-}
-
 function minutes(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed * 60 * 1000 : fallback * 60 * 1000;
+  return (Number.isFinite(parsed) && parsed > 0 ? parsed : fallback) * 60 * 1000;
 }
 
 function stripTrailingSlash(value: string): string {
@@ -102,4 +98,12 @@ function decodePossiblyEncoded(value: string): string {
     }
   }
   return current;
+}
+
+function hasUnsafePathChars(value: string): boolean {
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    if (char === '\\' || code < 32 || code === 127) return true;
+  }
+  return false;
 }

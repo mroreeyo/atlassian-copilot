@@ -6,11 +6,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mockHistory, mockSettingsStatus } from '@akc/shared/mock';
 import { App } from '../app/App';
 import { productTourStorageKey, useProductTourStore } from '../features/onboarding/stores/productTourStore';
-import { getAuthSession, isLocalAuthEnabled, login, logout, signup, startGoogleLogin } from '../services/auth/authClient';
+import { getAuthConfig, getAuthSession, isLocalAuthEnabled, login, logout, signup, startGoogleLogin } from '../services/auth/authClient';
 import { themeStorageKey, useUiStore } from '../stores/uiStore';
 
 vi.mock('../services/auth/authClient', () => ({
+  authConfigQueryKey: ['auth', 'config'],
   authSessionQueryKey: ['auth', 'session'],
+  getAuthConfig: vi.fn(async () => ({ googleEnabled: true, localAuthEnabled: true })),
   getAuthSession: vi.fn(async () => ({ user: null })),
   isLocalAuthEnabled: vi.fn(() => true),
   normalizeAuthReturnTo: vi.fn((value: string | null | undefined) => value && value.startsWith('/') && !value.startsWith('//') ? value : '/settings'),
@@ -50,6 +52,7 @@ function renderApp(initialRoute = '/copilot') {
 
 describe('route freeze', () => {
   beforeEach(() => {
+    vi.mocked(getAuthConfig).mockResolvedValue({ googleEnabled: true, localAuthEnabled: true });
     vi.mocked(getAuthSession).mockResolvedValue({ user: null });
     vi.mocked(isLocalAuthEnabled).mockReturnValue(true);
     vi.mocked(startGoogleLogin).mockReset();
@@ -141,10 +144,29 @@ describe('route freeze', () => {
   it('shows first-login Google account creation copy on signup', async () => {
     renderApp('/signup');
 
-    expect(await screen.findByRole('heading', { name: 'Google로 작업 공간 만들기' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '작업 공간 만들기' })).toBeInTheDocument();
     expect(screen.getByText(/최초 Google 로그인 시 AX Knowledge Copilot 계정이 생성됩니다/)).toBeInTheDocument();
     expect(screen.getByText(/이메일만으로 계정을 병합하지 않습니다/)).toBeInTheDocument();
-    expect(within(screen.getByLabelText('Google 가입')).getByRole('button', { name: 'Google로 계속하기' })).toBeInTheDocument();
+    expect(within(await screen.findByLabelText('Google 가입')).getByRole('button', { name: 'Google로 계속하기' })).toBeInTheDocument();
+  });
+
+  it('hides Google CTAs when the Broker reports Google auth disabled', async () => {
+    vi.mocked(getAuthConfig).mockResolvedValue({ googleEnabled: false, localAuthEnabled: true });
+    renderApp('/login');
+
+    expect(await screen.findByRole('heading', { name: '로그인' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Google 로그인')).not.toBeInTheDocument();
+    expect(screen.getByText(/Google 로그인은 이 Broker 환경에서 아직 활성화되지 않았습니다/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Google로 계속하기' })).not.toBeInTheDocument();
+  });
+
+  it('hides sidebar Google CTA when the Broker reports Google auth disabled', async () => {
+    vi.mocked(getAuthConfig).mockResolvedValue({ googleEnabled: false, localAuthEnabled: true });
+    renderApp('/copilot');
+
+    const sidebar = await screen.findByLabelText('로그인 안내');
+    expect(within(sidebar).queryByRole('button', { name: 'Google로 계속하기' })).not.toBeInTheDocument();
+    expect(within(sidebar).getByRole('link', { name: '로그인 옵션' })).toBeInTheDocument();
   });
 
   it('hides local email and password forms when local auth is disabled', async () => {

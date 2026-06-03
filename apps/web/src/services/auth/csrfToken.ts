@@ -8,6 +8,10 @@ export function clearMemoryCsrfToken(): void {
   csrfToken = undefined;
 }
 
+export function currentMemoryCsrfToken(): string | undefined {
+  return csrfToken;
+}
+
 export function csrfHeader(): Record<string, string> {
   return csrfToken ? { 'X-CSRF-Token': csrfToken } : {};
 }

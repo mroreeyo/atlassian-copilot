@@ -88,6 +88,7 @@ function buildDemoActionPlan(): { actions: ToolActionPlan[]; actionQueries: Reco
 export function getStoredRun(runId: string, userId?: string | null): StoredRun | undefined {
   const run = runs.get(runId);
   if (!run) return undefined;
+  if (userId === undefined) return run;
   if (run.userId && run.userId !== userId) return undefined;
   return run;
 }

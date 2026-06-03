@@ -4,9 +4,16 @@ import { resolveDbSession, revokeDbSessionByHash, verifyCsrfToken, type Resolved
 
 export const authCookieName = 'akc_session';
 
+export function readCookie(request: FastifyRequest, name: string): string | undefined {
+  return parseCookieHeader(request.headers.cookie).get(name);
+}
+
+export function readCookieAlias(request: FastifyRequest, name: string): string | undefined {
+  return readCookie(request, name) ?? readCookie(request, `__Host-${name}`);
+}
+
 export function readSessionCookie(request: FastifyRequest): string | undefined {
-  const cookies = parseCookieHeader(request.headers.cookie);
-  return cookies.get(authCookieName);
+  return readCookieAlias(request, authCookieName);
 }
 
 export function currentAuthUser(request: FastifyRequest) {
@@ -40,11 +47,23 @@ export function requireCsrf(request: FastifyRequest, reply: FastifyReply, sessio
 }
 
 export function setSessionCookie(reply: FastifyReply, request: FastifyRequest, sessionId: string): void {
-  reply.header('Set-Cookie', serializeSessionCookie(sessionId, request));
+  appendSetCookie(reply, serializeSessionCookie(sessionId, request));
 }
 
 export function clearSessionCookie(reply: FastifyReply): void {
-  reply.header('Set-Cookie', `${authCookieName}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+  appendSetCookie(reply, [
+    `${authCookieName}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`,
+    `__Host-${authCookieName}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`
+  ]);
+}
+
+export function appendSetCookie(reply: FastifyReply, cookies: string | string[]): void {
+  const existing = reply.getHeader('Set-Cookie');
+  const next = [
+    ...headerToCookieArray(existing),
+    ...(Array.isArray(cookies) ? cookies : [cookies])
+  ];
+  reply.header('Set-Cookie', next);
 }
 
 export function invalidateRequestSession(request: FastifyRequest): void {
@@ -57,7 +76,8 @@ export function rotateRequestSession(request: FastifyRequest): void {
 }
 
 function serializeSessionCookie(sessionId: string, request: FastifyRequest): string {
-  const name = shouldUseSecureCookie(request) ? `__Host-${authCookieName}` : authCookieName;
+  const secure = shouldUseSecureCookie(request);
+  const name = secure ? `__Host-${authCookieName}` : authCookieName;
   const parts = [
     `${name}=${encodeURIComponent(sessionId)}`,
     'HttpOnly',
@@ -65,14 +85,20 @@ function serializeSessionCookie(sessionId: string, request: FastifyRequest): str
     'Path=/',
     `Max-Age=${sessionMaxAgeSeconds()}`
   ];
-  if (shouldUseSecureCookie(request)) parts.push('Secure');
+  if (secure) parts.push('Secure');
   return parts.join('; ');
 }
 
-function shouldUseSecureCookie(request: FastifyRequest): boolean {
+export function shouldUseSecureCookie(request: FastifyRequest): boolean {
   const forwardedProto = request.headers['x-forwarded-proto'];
   const forwarded = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
   return process.env.NODE_ENV === 'production' || forwarded === 'https' || request.protocol === 'https';
+}
+
+function headerToCookieArray(value: unknown): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map(String);
+  return [String(value)];
 }
 
 function parseCookieHeader(header: string | undefined): Map<string, string> {
@@ -82,7 +108,7 @@ function parseCookieHeader(header: string | undefined): Map<string, string> {
     if (index <= 0) continue;
     const key = part.slice(0, index).trim();
     const value = part.slice(index + 1).trim();
-    if (key) cookies.set(key.replace(/^__Host-/, ''), decodeURIComponent(value));
+    if (key) cookies.set(key, decodeURIComponent(value));
   }
   return cookies;
 }

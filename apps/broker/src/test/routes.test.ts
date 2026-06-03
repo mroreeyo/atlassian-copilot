@@ -5,15 +5,19 @@ import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { InjectOptions, LightMyRequestResponse } from 'fastify';
 import { buildApp } from '../app.js';
+import { setGoogleOidcClientForTests } from '../services/auth/googleOidc.js';
 import { clearAuditEntriesForTests, listAuditEntries } from '../services/audit/auditLog.js';
 import { clearStoredRunsForTests } from '../services/runs/runStore.js';
 import { clearPersonalAtlassianSettings } from '../services/settings/atlassianSettingsStore.js';
 import { clearPersonalLlmSettings } from '../services/settings/llmSettingsStore.js';
 import { clearLlmModelCatalogCache } from '../services/llm/modelCatalog.js';
+import { userScopedEnv } from '../services/auth/userScope.js';
 
 let app: ReturnType<typeof buildApp>;
 let stateDir: string;
 let authCookie: string;
+let authCsrfToken: string;
+let authUserId: string;
 let authTestCounter = 0;
 const routeHookTimeoutMs = 60_000;
 const originalEnv = {
@@ -34,7 +38,14 @@ const originalEnv = {
   AKC_CREDENTIAL_ENCRYPTION_KEY: process.env.AKC_CREDENTIAL_ENCRYPTION_KEY,
   ATLASSIAN_SITE_HOST_ALLOWLIST: process.env.ATLASSIAN_SITE_HOST_ALLOWLIST,
   AKC_ATLASSIAN_SITE_HOST_ALLOWLIST: process.env.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST,
-  NODE_ENV: process.env.NODE_ENV
+  NODE_ENV: process.env.NODE_ENV,
+  AKC_ENABLE_GOOGLE_AUTH: process.env.AKC_ENABLE_GOOGLE_AUTH,
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+  GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
+  GOOGLE_ALLOWED_HOSTED_DOMAIN: process.env.GOOGLE_ALLOWED_HOSTED_DOMAIN,
+  AKC_AUTH_BASE_URL: process.env.AKC_AUTH_BASE_URL,
+  AKC_AUTH_CSRF_SECRET: process.env.AKC_AUTH_CSRF_SECRET
 };
 
 beforeAll(async () => {
@@ -64,11 +75,15 @@ beforeAll(async () => {
   });
   const setCookie = signup.headers['set-cookie'];
   authCookie = Array.isArray(setCookie) ? (setCookie[0] ?? '') : (setCookie ?? '');
+  authCsrfToken = signup.json<{ csrfToken: string }>().csrfToken;
+  authUserId = signup.json<{ user: { id: string } }>().user.id;
 }, routeHookTimeoutMs);
 
 afterEach(() => {
   clearStoredRunsForTests();
   clearAuditEntriesForTests();
+  clearPersonalAtlassianSettings(userScopedEnv(authUserId));
+  clearPersonalLlmSettings(userScopedEnv(authUserId));
   clearPersonalAtlassianSettings();
   clearPersonalLlmSettings();
   clearLlmModelCatalogCache();
@@ -89,6 +104,14 @@ afterEach(() => {
   delete process.env.ATLASSIAN_SITE_HOST_ALLOWLIST;
   delete process.env.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST;
   restoreEnv('NODE_ENV', originalEnv.NODE_ENV);
+  restoreEnv('AKC_ENABLE_GOOGLE_AUTH', originalEnv.AKC_ENABLE_GOOGLE_AUTH);
+  restoreEnv('GOOGLE_CLIENT_ID', originalEnv.GOOGLE_CLIENT_ID);
+  restoreEnv('GOOGLE_CLIENT_SECRET', originalEnv.GOOGLE_CLIENT_SECRET);
+  restoreEnv('GOOGLE_REDIRECT_URI', originalEnv.GOOGLE_REDIRECT_URI);
+  restoreEnv('GOOGLE_ALLOWED_HOSTED_DOMAIN', originalEnv.GOOGLE_ALLOWED_HOSTED_DOMAIN);
+  restoreEnv('AKC_AUTH_BASE_URL', originalEnv.AKC_AUTH_BASE_URL);
+  restoreEnv('AKC_AUTH_CSRF_SECRET', originalEnv.AKC_AUTH_CSRF_SECRET);
+  setGoogleOidcClientForTests(null);
   vi.restoreAllMocks();
 });
 
@@ -112,14 +135,23 @@ afterAll(async () => {
   restoreEnv('ATLASSIAN_SITE_HOST_ALLOWLIST', originalEnv.ATLASSIAN_SITE_HOST_ALLOWLIST);
   restoreEnv('AKC_ATLASSIAN_SITE_HOST_ALLOWLIST', originalEnv.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST);
   restoreEnv('NODE_ENV', originalEnv.NODE_ENV);
+  restoreEnv('AKC_ENABLE_GOOGLE_AUTH', originalEnv.AKC_ENABLE_GOOGLE_AUTH);
+  restoreEnv('GOOGLE_CLIENT_ID', originalEnv.GOOGLE_CLIENT_ID);
+  restoreEnv('GOOGLE_CLIENT_SECRET', originalEnv.GOOGLE_CLIENT_SECRET);
+  restoreEnv('GOOGLE_REDIRECT_URI', originalEnv.GOOGLE_REDIRECT_URI);
+  restoreEnv('GOOGLE_ALLOWED_HOSTED_DOMAIN', originalEnv.GOOGLE_ALLOWED_HOSTED_DOMAIN);
+  restoreEnv('AKC_AUTH_BASE_URL', originalEnv.AKC_AUTH_BASE_URL);
+  restoreEnv('AKC_AUTH_CSRF_SECRET', originalEnv.AKC_AUTH_CSRF_SECRET);
   rmSync(stateDir, { recursive: true, force: true });
 }, routeHookTimeoutMs);
 
 async function authInject(options: InjectOptions): Promise<LightMyRequestResponse> {
-  return await app.inject({
-    ...options,
-    headers: { cookie: authCookie, ...((options.headers ?? {}) as Record<string, string>) }
-  });
+  const provided = (options.headers ?? {}) as Record<string, string>;
+  const headers: Record<string, string> = { cookie: authCookie, ...provided };
+  const method = String(options.method ?? 'GET').toUpperCase();
+  const hasCsrf = Object.keys(headers).some((key) => key.toLowerCase() === 'x-csrf-token');
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && !hasCsrf) headers['x-csrf-token'] = authCsrfToken;
+  return await app.inject({ ...options, headers });
 }
 
 async function createRun(app: ReturnType<typeof buildApp>, message = 'hello') {
@@ -247,9 +279,9 @@ describe('broker routes', () => {
 
     const session = await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie: loginCookie } });
     expect(session.statusCode).toBe(200);
-    expect(session.json()).toMatchObject({ user: { email } });
+    expect(session.json()).toMatchObject({ user: { email }, csrfToken: expect.any(String) });
 
-    const logout = await app.inject({ method: 'POST', url: '/api/auth/logout', headers: { cookie: loginCookie } });
+    const logout = await app.inject({ method: 'POST', url: '/api/auth/logout', headers: { cookie: loginCookie, 'x-csrf-token': session.json<{ csrfToken: string }>().csrfToken } });
     const clearedCookie = Array.isArray(logout.headers['set-cookie']) ? (logout.headers['set-cookie'][0] ?? '') : (logout.headers['set-cookie'] ?? '');
     expect(logout.statusCode).toBe(200);
     expect(clearedCookie).toContain('akc_session=;');
@@ -734,7 +766,7 @@ describe('broker routes', () => {
     expect(save.statusCode).toBe(400);
     expect(save.body).not.toContain('env_token_1234567890');
     const status = await authInject({ method: 'GET', url: '/api/settings/status' });
-    expect(status.json().atlassian).toMatchObject({ source: 'environment', configured: true, siteUrl: 'https://env.atlassian.net' });
+    expect(status.json().atlassian).toMatchObject({ source: 'none', configured: false, tokenConfigured: false });
   }, 30_000);
 
   it('rejects Atlassian site URLs that could exfiltrate credentials through SSRF', async () => {
@@ -904,12 +936,15 @@ describe('broker routes', () => {
 
   it('fails closed on production secret encryption without a managed key', async () => {
     process.env.NODE_ENV = 'production';
+    process.env.AKC_AUTH_CSRF_SECRET = Buffer.alloc(32, 7).toString('base64');
     delete process.env.AKC_CREDENTIAL_ENCRYPTION_KEY;
     const secret = 'sk-production-must-use-managed-key';
+    const csrf = (await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie: authCookie } })).json<{ csrfToken: string }>().csrfToken;
 
     const response = await authInject({
       method: 'POST',
       url: '/api/settings/llm',
+      headers: { 'x-csrf-token': csrf },
       payload: { provider: 'openai', apiKey: secret, model: 'gpt-4.1-mini', enabled: true }
     });
 
@@ -1013,17 +1048,13 @@ describe('broker routes', () => {
     expect(test.json().status.llm.lastError).toBe('OpenRouter 연결 테스트가 실패했습니다. 상태 429.');
   }, 30_000);
 
-  it('supports OpenRouter environment fallback only when explicitly enabled', async () => {
+  it('does not expose OpenRouter environment fallback inside authenticated user-scoped settings', async () => {
     process.env.OPENROUTER_API_KEY = 'sk-or-env-secret';
     process.env.OPENROUTER_MODEL = 'openai/gpt-4.1-mini';
-    process.env.AKC_ENABLE_LIVE_OPENROUTER = 'false';
+    process.env.AKC_ENABLE_LIVE_OPENROUTER = 'true';
 
     const configured = await authInject({ method: 'GET', url: '/api/settings/status' });
-    expect(configured.json()).toMatchObject({ llm: { provider: 'openrouter', source: 'environment', configured: true, enabled: false, connected: false, model: 'openai/gpt-4.1-mini' } });
-
-    process.env.AKC_ENABLE_LIVE_OPENROUTER = 'true';
-    const enabled = await authInject({ method: 'GET', url: '/api/settings/status' });
-    expect(enabled.json()).toMatchObject({ llm: { provider: 'openrouter', source: 'environment', configured: true, enabled: true, connected: true } });
+    expect(configured.json()).toMatchObject({ llm: { provider: 'mock', source: 'none', configured: false, enabled: false, connected: false } });
 
     delete process.env.OPENROUTER_API_KEY;
     delete process.env.OPENROUTER_MODEL;
