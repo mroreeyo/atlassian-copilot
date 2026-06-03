@@ -30,12 +30,12 @@ export function googleAuthConfig(env = process.env): GoogleAuthConfig {
 
   return {
     enabled: !disabledReason,
-    disabledReason,
+    ...(disabledReason ? { disabledReason } : {}),
     clientId,
     clientSecret,
     redirectUri,
     authBaseUrl,
-    hostedDomain: env.GOOGLE_ALLOWED_HOSTED_DOMAIN?.trim() || undefined,
+    ...(env.GOOGLE_ALLOWED_HOSTED_DOMAIN?.trim() ? { hostedDomain: env.GOOGLE_ALLOWED_HOSTED_DOMAIN.trim() } : {}),
     transactionTtlMs: minutes(env.AKC_AUTH_OAUTH_TRANSACTION_TTL_MINUTES, 10)
   };
 }
