@@ -40,6 +40,7 @@ const originalEnv = {
   AKC_ATLASSIAN_SITE_HOST_ALLOWLIST: process.env.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST,
   NODE_ENV: process.env.NODE_ENV,
   AKC_ENABLE_GOOGLE_AUTH: process.env.AKC_ENABLE_GOOGLE_AUTH,
+  AKC_ENABLE_LOCAL_AUTH: process.env.AKC_ENABLE_LOCAL_AUTH,
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
   GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
@@ -67,6 +68,7 @@ beforeAll(async () => {
   delete process.env.AKC_CREDENTIAL_ENCRYPTION_KEY;
   delete process.env.ATLASSIAN_SITE_HOST_ALLOWLIST;
   delete process.env.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST;
+  delete process.env.AKC_ENABLE_LOCAL_AUTH;
   app = buildApp();
   const signup = await app.inject({
     method: 'POST',
@@ -105,6 +107,7 @@ afterEach(() => {
   delete process.env.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST;
   restoreEnv('NODE_ENV', originalEnv.NODE_ENV);
   restoreEnv('AKC_ENABLE_GOOGLE_AUTH', originalEnv.AKC_ENABLE_GOOGLE_AUTH);
+  delete process.env.AKC_ENABLE_LOCAL_AUTH;
   restoreEnv('GOOGLE_CLIENT_ID', originalEnv.GOOGLE_CLIENT_ID);
   restoreEnv('GOOGLE_CLIENT_SECRET', originalEnv.GOOGLE_CLIENT_SECRET);
   restoreEnv('GOOGLE_REDIRECT_URI', originalEnv.GOOGLE_REDIRECT_URI);
@@ -136,6 +139,7 @@ afterAll(async () => {
   restoreEnv('AKC_ATLASSIAN_SITE_HOST_ALLOWLIST', originalEnv.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST);
   restoreEnv('NODE_ENV', originalEnv.NODE_ENV);
   restoreEnv('AKC_ENABLE_GOOGLE_AUTH', originalEnv.AKC_ENABLE_GOOGLE_AUTH);
+  restoreEnv('AKC_ENABLE_LOCAL_AUTH', originalEnv.AKC_ENABLE_LOCAL_AUTH);
   restoreEnv('GOOGLE_CLIENT_ID', originalEnv.GOOGLE_CLIENT_ID);
   restoreEnv('GOOGLE_CLIENT_SECRET', originalEnv.GOOGLE_CLIENT_SECRET);
   restoreEnv('GOOGLE_REDIRECT_URI', originalEnv.GOOGLE_REDIRECT_URI);
@@ -291,13 +295,93 @@ describe('broker routes', () => {
     expect(afterLogout.statusCode).toBe(401);
   }, 30_000);
 
-  it('rate-limits repeated login failures by forwarded client key', async () => {
-    const email = uniqueAuthEmail('rate-limit');
+  it('keeps an existing session active when a local login attempt fails', async () => {
+    const session = await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie: authCookie } });
+    expect(session.statusCode).toBe(200);
+
+    const failedLogin = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      headers: { cookie: authCookie },
+      payload: { email: uniqueAuthEmail('missing-login'), password: 'WrongPass123' }
+    });
+    expect(failedLogin.statusCode).toBe(401);
+
+    const afterFailure = await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie: authCookie } });
+    expect(afterFailure.statusCode).toBe(200);
+    expect(afterFailure.json()).toMatchObject({ user: { id: authUserId } });
+  }, 30_000);
+
+  it('disables local email/password auth by default in production unless explicitly enabled', async () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.AKC_ENABLE_LOCAL_AUTH;
+
+    const disabledSignup = await app.inject({
+      method: 'POST',
+      url: '/api/auth/signup',
+      payload: { email: uniqueAuthEmail('prod-local-off'), password: 'StrongPass123' }
+    });
+    expect(disabledSignup.statusCode).toBe(403);
+
+    process.env.AKC_ENABLE_LOCAL_AUTH = 'true';
+    const enabledSignup = await app.inject({
+      method: 'POST',
+      url: '/api/auth/signup',
+      payload: { email: uniqueAuthEmail('prod-local-on'), password: 'StrongPass123' }
+    });
+    expect(enabledSignup.statusCode).toBe(201);
+    const setCookie = Array.isArray(enabledSignup.headers['set-cookie']) ? enabledSignup.headers['set-cookie'][0] : enabledSignup.headers['set-cookie'];
+    expect(setCookie).toContain('__Host-akc_session=');
+    expect(setCookie).toContain('Secure');
+  }, 30_000);
+
+  it('uses only the __Host session cookie in production and ignores malformed cookie values', async () => {
+    const email = uniqueAuthEmail('host-cookie');
     await app.inject({ method: 'POST', url: '/api/auth/signup', payload: { email, password: 'StrongPass123' } });
-    const headers = { 'x-forwarded-for': `203.0.113.${authTestCounter}` };
+
+    process.env.NODE_ENV = 'production';
+    process.env.AKC_ENABLE_LOCAL_AUTH = 'true';
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'StrongPass123' } });
+    const hostCookie = cookieHeaderFromSetCookie(login, 'akc_session');
+    expect(hostCookie).toMatch(/^__Host-akc_session=/);
+
+    const shadowed = await app.inject({
+      method: 'GET',
+      url: '/api/auth/session',
+      headers: { cookie: `akc_session=shadowed; ${hostCookie}` }
+    });
+    expect(shadowed.statusCode).toBe(200);
+    expect(shadowed.json()).toMatchObject({ user: { email } });
+
+    const plainOnly = await app.inject({
+      method: 'GET',
+      url: '/api/auth/session',
+      headers: { cookie: hostCookie.replace(/^__Host-akc_session=/, 'akc_session=') }
+    });
+    expect(plainOnly.statusCode).toBe(401);
+
+    process.env.NODE_ENV = 'test';
+    delete process.env.AKC_ENABLE_LOCAL_AUTH;
+    const malformed = await app.inject({
+      method: 'GET',
+      url: '/api/auth/session',
+      headers: { cookie: 'akc_session=%E0%A4%A' }
+    });
+    expect(malformed.statusCode).toBe(401);
+  }, 30_000);
+
+  it('rate-limits repeated login failures by request IP without trusting raw forwarded headers', async () => {
     const attempts = [];
     for (let index = 0; index < 6; index += 1) {
-      attempts.push(await app.inject({ method: 'POST', url: '/api/auth/login', headers, payload: { email, password: 'WrongPass123' } }));
+      const email = uniqueAuthEmail('rate-limit');
+      await app.inject({ method: 'POST', url: '/api/auth/signup', payload: { email, password: 'StrongPass123' } });
+      attempts.push(await app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        remoteAddress: '198.51.100.10',
+        headers: { 'x-forwarded-for': `203.0.113.${index + 1}` },
+        payload: { email, password: 'WrongPass123' }
+      }));
     }
 
     expect(attempts.slice(0, 5).map((attempt) => attempt.statusCode)).toEqual([401, 401, 401, 401, 401]);
@@ -1279,6 +1363,16 @@ describe('broker routes', () => {
     expect(stream.body).toContain('event: run.completed');
   }, 30_000);
 });
+
+function cookieHeaderFromSetCookie(response: { headers: Record<string, unknown> }, name: string): string {
+  const values = cookieValues(response);
+  return values.find((value) => (value.startsWith(`${name}=`) || value.startsWith(`__Host-${name}=`)) && !value.includes('Max-Age=0')) ?? '';
+}
+
+function cookieValues(response: { headers: Record<string, unknown> }): string[] {
+  const setCookie = response.headers['set-cookie'];
+  return Array.isArray(setCookie) ? setCookie.map(String) : [String(setCookie ?? '')];
+}
 
 function restoreEnv(key: string, value: string | undefined) {
   if (value === undefined) delete process.env[key];

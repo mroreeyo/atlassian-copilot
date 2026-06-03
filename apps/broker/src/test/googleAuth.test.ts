@@ -11,6 +11,7 @@ let stateDir: string;
 let nextSubject = 'google-sub-1';
 let lastStart: { state: string; nonce: string; codeChallenge: string } | null = null;
 let nextHostedDomain: string | undefined;
+let localAuthCounter = 0;
 
 const originalEnv = {
   AKC_BROKER_STATE_DIR: process.env.AKC_BROKER_STATE_DIR,
@@ -183,6 +184,31 @@ describe('Google OAuth/OIDC auth routes', () => {
     expect(callback.headers['set-cookie']).toEqual(expect.arrayContaining([expect.stringContaining('akc_oauth_tx=;')]));
   });
 
+  it('keeps an existing session active when Google callback validation fails', async () => {
+    const signup = await app.inject({
+      method: 'POST',
+      url: '/api/auth/signup',
+      payload: { email: uniqueLocalEmail(), password: 'StrongPass123' }
+    });
+    const existingCookie = cookieHeaderFromSetCookie(signup, 'akc_session');
+    expect(signup.statusCode).toBe(201);
+
+    const start = await app.inject({ method: 'GET', url: '/api/auth/google/start?returnTo=/settings' });
+    expect(start.statusCode).toBe(302);
+    expect(lastStart?.state).toEqual(expect.any(String));
+
+    const callback = await app.inject({
+      method: 'GET',
+      url: `/api/auth/google/callback?code=fake-code&state=${encodeURIComponent(lastStart!.state)}`,
+      headers: { cookie: existingCookie }
+    });
+    expect(callback.statusCode).toBe(302);
+    expect(callback.headers.location).toBe('/login?authError=invalid_oauth_transaction');
+
+    const session = await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie: existingCookie } });
+    expect(session.statusCode).toBe(200);
+  });
+
   it('surfaces safe Google OIDC callback failure reasons', async () => {
     process.env.GOOGLE_ALLOWED_HOSTED_DOMAIN = 'example.com';
     nextHostedDomain = 'other.example';
@@ -259,6 +285,11 @@ function cookieHeaderFromSetCookie(response: { headers: Record<string, unknown> 
 function cookieValues(response: { headers: Record<string, unknown> }): string[] {
   const setCookie = response.headers['set-cookie'];
   return Array.isArray(setCookie) ? setCookie.map(String) : [String(setCookie ?? '')];
+}
+
+function uniqueLocalEmail(): string {
+  localAuthCounter += 1;
+  return `google-local-${localAuthCounter}@example.com`;
 }
 
 function restoreEnv(key: keyof typeof originalEnv, value: string | undefined): void {
