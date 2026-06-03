@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { sessionMaxAgeSeconds, resolveSession, destroySession } from './authStore.js';
+import { resolveDbSession, revokeDbSessionByHash, verifyCsrfToken, type ResolvedSession } from './authDb.js';
 
 export const authCookieName = 'akc_session';
 
@@ -12,11 +13,30 @@ export function currentAuthUser(request: FastifyRequest) {
   return resolveSession(readSessionCookie(request));
 }
 
+export function currentAuthSession(request: FastifyRequest): ResolvedSession | null {
+  return resolveDbSession(readSessionCookie(request));
+}
+
 export function requireAuth(request: FastifyRequest, reply: FastifyReply) {
   const user = currentAuthUser(request);
   if (user) return user;
   reply.code(401).send({ error: '로그인이 필요합니다.' });
   return null;
+}
+
+export function requireAuthSession(request: FastifyRequest, reply: FastifyReply): ResolvedSession | null {
+  const session = currentAuthSession(request);
+  if (session) return session;
+  reply.code(401).send({ error: '로그인이 필요합니다.' });
+  return null;
+}
+
+export function requireCsrf(request: FastifyRequest, reply: FastifyReply, session = currentAuthSession(request)): boolean {
+  const token = request.headers['x-csrf-token'];
+  const value = Array.isArray(token) ? token[0] : token;
+  if (verifyCsrfToken(session, value)) return true;
+  reply.code(403).send({ error: 'CSRF 토큰이 없거나 올바르지 않습니다.' });
+  return false;
 }
 
 export function setSessionCookie(reply: FastifyReply, request: FastifyRequest, sessionId: string): void {
@@ -31,9 +51,15 @@ export function invalidateRequestSession(request: FastifyRequest): void {
   destroySession(readSessionCookie(request));
 }
 
+export function rotateRequestSession(request: FastifyRequest): void {
+  const session = currentAuthSession(request);
+  if (session) revokeDbSessionByHash(session.idHash);
+}
+
 function serializeSessionCookie(sessionId: string, request: FastifyRequest): string {
+  const name = shouldUseSecureCookie(request) ? `__Host-${authCookieName}` : authCookieName;
   const parts = [
-    `${authCookieName}=${encodeURIComponent(sessionId)}`,
+    `${name}=${encodeURIComponent(sessionId)}`,
     'HttpOnly',
     'SameSite=Lax',
     'Path=/',
@@ -56,7 +82,7 @@ function parseCookieHeader(header: string | undefined): Map<string, string> {
     if (index <= 0) continue;
     const key = part.slice(0, index).trim();
     const value = part.slice(index + 1).trim();
-    if (key) cookies.set(key, decodeURIComponent(value));
+    if (key) cookies.set(key.replace(/^__Host-/, ''), decodeURIComponent(value));
   }
   return cookies;
 }
