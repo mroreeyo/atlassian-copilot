@@ -44,6 +44,7 @@ import {
   type SettingsStatus
 } from '@akc/shared';
 import { brokerUrl } from './brokerUrl';
+import { clearMemoryCsrfToken, csrfHeader, setMemoryCsrfToken } from '../auth/csrfToken';
 
 function streamBrokerUrl(path: string): string {
   if (!/^\/api\/copilot\/runs\/[^/?#/]+\/stream$/.test(path)) {
@@ -67,7 +68,7 @@ export async function approveAction(actionId: string, inputPreview?: ActionAppro
   const response = await fetch(brokerUrl(`/api/copilot/actions/${encodeURIComponent(actionId)}/approve`), {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...csrfHeader() },
     body: JSON.stringify({ approved: true, ...(inputPreview ? { inputPreview } : {}) })
   });
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '서버 승인 요청 실패'));
@@ -78,7 +79,7 @@ export async function cancelAction(actionId: string, reason = '사용자가 작�
   const response = await fetch(brokerUrl(`/api/copilot/actions/${encodeURIComponent(actionId)}/cancel`), {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...csrfHeader() },
     body: JSON.stringify({ reason })
   });
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '서버 취소 요청 실패'));
@@ -108,7 +109,7 @@ export async function saveAtlassianSettings(request: AtlassianSettingsRequest): 
   const response = await fetch(brokerUrl('/api/settings/atlassian'), {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...csrfHeader() },
     body: JSON.stringify(payload)
   });
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '서버 설정 저장 실패'));
@@ -119,7 +120,7 @@ export async function clearAtlassianSettings(): Promise<AtlassianSettingsClearRe
   const response = await fetch(brokerUrl('/api/settings/atlassian'), {
     method: 'DELETE',
     credentials: 'include',
-    headers: { Accept: 'application/json' }
+    headers: { Accept: 'application/json', ...csrfHeader() }
   });
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '서버 설정 삭제 실패'));
   return AtlassianSettingsClearResponseSchema.parse(await response.json());
@@ -129,7 +130,7 @@ export async function testAtlassianSettings(): Promise<AtlassianSettingsTestResp
   const response = await fetch(brokerUrl('/api/settings/atlassian/test'), {
     method: 'POST',
     credentials: 'include',
-    headers: { Accept: 'application/json' }
+    headers: { Accept: 'application/json', ...csrfHeader() }
   });
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '서버 Atlassian 테스트 실패'));
   return AtlassianSettingsTestResponseSchema.parse(await response.json());
@@ -140,7 +141,7 @@ export async function saveLlmSettings(request: LlmSettingsRequest): Promise<LlmS
   const response = await fetch(brokerUrl('/api/settings/llm'), {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...csrfHeader() },
     body: JSON.stringify(payload)
   });
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '서버 LLM 설정 저장 실패'));
@@ -151,7 +152,7 @@ export async function clearLlmSettings(): Promise<LlmSettingsClearResponse> {
   const response = await fetch(brokerUrl('/api/settings/llm'), {
     method: 'DELETE',
     credentials: 'include',
-    headers: { Accept: 'application/json' }
+    headers: { Accept: 'application/json', ...csrfHeader() }
   });
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '서버 LLM 설정 삭제 실패'));
   return LlmSettingsClearResponseSchema.parse(await response.json());
@@ -171,7 +172,7 @@ export async function testLlmSettings(): Promise<LlmSettingsTestResponse> {
   const response = await fetch(brokerUrl('/api/settings/llm/test'), {
     method: 'POST',
     credentials: 'include',
-    headers: { Accept: 'application/json' }
+    headers: { Accept: 'application/json', ...csrfHeader() }
   });
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '서버 LLM 테스트 실패'));
   return LlmSettingsTestResponseSchema.parse(await response.json());
@@ -203,11 +204,11 @@ export async function signup(request: AuthSignupRequest): Promise<AuthSessionRes
   const response = await fetch(brokerUrl('/api/auth/signup'), {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...csrfHeader() },
     body: JSON.stringify(payload)
   });
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '가입 실패'));
-  return AuthSessionResponseSchema.parse(await response.json());
+  return rememberAuthSession(AuthSessionResponseSchema.parse(await response.json()));
 }
 
 export async function login(request: AuthLoginRequest): Promise<AuthSessionResponse> {
@@ -215,11 +216,11 @@ export async function login(request: AuthLoginRequest): Promise<AuthSessionRespo
   const response = await fetch(brokerUrl('/api/auth/login'), {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...csrfHeader() },
     body: JSON.stringify(payload)
   });
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '로그인 실패'));
-  return AuthSessionResponseSchema.parse(await response.json());
+  return rememberAuthSession(AuthSessionResponseSchema.parse(await response.json()));
 }
 
 export async function getAuthSession(): Promise<AuthSessionResponse | null> {
@@ -229,17 +230,24 @@ export async function getAuthSession(): Promise<AuthSessionResponse | null> {
   });
   if (response.status === 401) return null;
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '세션 조회 실패'));
-  return AuthSessionResponseSchema.parse(await response.json());
+  return rememberAuthSession(AuthSessionResponseSchema.parse(await response.json()));
 }
 
 export async function logout(): Promise<AuthLogoutResponse> {
   const response = await fetch(brokerUrl('/api/auth/logout'), {
     method: 'POST',
     credentials: 'include',
-    headers: { Accept: 'application/json' }
+    headers: { Accept: 'application/json', ...csrfHeader() }
   });
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '로그아웃 실패'));
-  return AuthLogoutResponseSchema.parse(await response.json());
+  const parsed = AuthLogoutResponseSchema.parse(await response.json());
+  clearMemoryCsrfToken();
+  return parsed;
+}
+
+function rememberAuthSession(session: AuthSessionResponse): AuthSessionResponse {
+  setMemoryCsrfToken(session.csrfToken);
+  return session;
 }
 
 export function decodeSseFrames(text: string): CopilotSseEvent[] {

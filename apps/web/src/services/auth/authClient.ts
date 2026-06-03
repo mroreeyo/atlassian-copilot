@@ -1,4 +1,5 @@
 import { brokerUrl } from '../copilot/brokerUrl';
+import { clearMemoryCsrfToken, setMemoryCsrfToken, csrfHeader } from './csrfToken';
 
 export const authSessionQueryKey = ['auth', 'session'] as const;
 
@@ -7,12 +8,13 @@ const allowedReturnToPaths = new Set(['/copilot', '/history', '/settings']);
 let csrfTokenInMemory: string | null = null;
 
 export interface AuthUser {
+  id?: string | undefined;
   email: string;
 }
 
 export interface AuthSession {
   user: AuthUser | null;
-  csrfToken?: string;
+  csrfToken?: string | undefined;
 }
 
 export interface AuthCredentials {
@@ -30,7 +32,7 @@ export async function getAuthSession(): Promise<AuthSession> {
     return { user: null };
   }
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '세션 확인 실패'));
-  return parseAuthSession(await response.json());
+  return rememberSession(parseAuthSession(await response.json()));
 }
 
 export async function login(credentials: AuthCredentials): Promise<AuthSession> {
@@ -41,14 +43,19 @@ export async function signup(credentials: AuthCredentials): Promise<AuthSession>
   return submitAuth('/api/auth/signup', credentials, '가입 실패');
 }
 
+export function startGoogleLogin(returnTo = '/settings'): void {
+  window.location.assign(brokerUrl(`/api/auth/google/start?returnTo=${encodeURIComponent(safeReturnTo(returnTo))}`));
+}
+
 export async function logout(): Promise<AuthSession> {
   const response = await fetch(brokerUrl('/api/auth/logout'), {
     method: 'POST',
     credentials: 'include',
-    headers: csrfHeaders({ Accept: 'application/json' })
+    headers: { Accept: 'application/json', ...csrfHeader() }
   });
   rememberCsrfToken(null);
   if (!response.ok) throw new Error(await brokerErrorMessage(response, '로그아웃 실패'));
+  clearMemoryCsrfToken();
   return { user: null };
 }
 
@@ -95,7 +102,7 @@ async function submitAuth(path: string, credentials: AuthCredentials, fallback: 
     body: JSON.stringify({ email: credentials.email.trim().toLowerCase(), password: credentials.password })
   });
   if (!response.ok) throw new Error(await brokerErrorMessage(response, fallback));
-  return parseAuthSession(await response.json());
+  return rememberSession(parseAuthSession(await response.json()));
 }
 
 function csrfHeaders(base: Record<string, string>): Record<string, string> {
@@ -115,13 +122,29 @@ function parseAuthSession(payload: unknown): AuthSession {
   const user = 'user' in payload ? (payload as { user?: unknown }).user : payload;
   if (!user || typeof user !== 'object') return csrfTokenInMemory ? { user: null, csrfToken: csrfTokenInMemory } : { user: null };
   const email = (user as { email?: unknown }).email;
-  const session = typeof email === 'string' && email.trim() ? { user: { email } } : { user: null };
-  return csrfTokenInMemory ? { ...session, csrfToken: csrfTokenInMemory } : session;
+  const id = (user as { id?: unknown }).id;
+  const csrfToken = (payload as { csrfToken?: unknown }).csrfToken;
+  return typeof email === 'string' && email.trim()
+    ? { user: { email, ...(typeof id === 'string' ? { id } : {}) }, ...(typeof csrfToken === 'string' ? { csrfToken } : {}) }
+    : { user: null };
 }
 
-function rememberCsrfToken(value: string | null): void {
-  csrfTokenInMemory = value;
+function rememberSession(session: AuthSession): AuthSession {
+  setMemoryCsrfToken(session.csrfToken);
+  return session;
 }
+
+function safeReturnTo(path: string): string {
+  try {
+    const url = new URL(path, window.location.origin);
+    if (url.origin !== window.location.origin) return '/settings';
+    if (!['/copilot', '/history', '/settings'].includes(url.pathname)) return '/settings';
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return '/settings';
+  }
+}
+
 
 async function brokerErrorMessage(response: Response, fallback: string): Promise<string> {
   try {

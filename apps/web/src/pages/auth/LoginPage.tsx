@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { authSessionQueryKey, isLocalAuthEnabled, login, normalizeAuthReturnTo, startGoogleLogin } from '../../services/auth/authClient';
+import { authSessionQueryKey, login, startGoogleLogin } from '../../services/auth/authClient';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -36,31 +36,23 @@ export function LoginPage() {
           <h1 id="login-title">로그인</h1>
           <p className="muted">Google로 로그인하면 계정이 없을 경우 자동으로 작업 공간이 생성됩니다. 세션은 HttpOnly 쿠키로만 유지됩니다.</p>
         </div>
-        <div className="auth-provider-panel" aria-label="Google 로그인">
-          <button className="btn primary auth-google-button" type="button" onClick={() => startGoogleLogin(returnTo)}>
-            Google로 계속하기
-          </button>
-          <p className="muted">최초 Google 로그인 시 AX Knowledge Copilot 계정이 생성됩니다. 브라우저는 Google 토큰이나 코드를 저장하지 않고 Broker 시작 경로로만 이동합니다.</p>
+        <div className="auth-provider-stack">
+          <button className="btn primary google-auth" type="button" onClick={() => startGoogleLogin(returnTarget(location.state))}>Google로 계속하기</button>
+          <p className="muted">브라우저는 Google 토큰을 저장하지 않고 Broker 로그인 시작 경로로만 이동합니다.</p>
         </div>
-        {notice ? <p className="settings-notice danger" role="alert">{notice}</p> : null}
-        {localAuth ? (
-          <>
-            <div className="auth-divider" role="separator"><span>또는 로컬 계정</span></div>
-            <form className="auth-form" onSubmit={onSubmit} aria-label="로컬 이메일 로그인">
-              <label>
-                이메일
-                <input name="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
-              </label>
-              <label>
-                비밀번호
-                <input name="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
-              </label>
-              <button className="btn subtle" type="submit" disabled={mutation.isPending}>{mutation.isPending ? '로그인 중' : '로컬 계정으로 로그인'}</button>
-            </form>
-          </>
-        ) : (
-          <p className="settings-notice ai">로컬 이메일/비밀번호 로그인은 현재 환경에서 비활성화되어 있습니다. Google 로그인을 사용하세요.</p>
-        )}
+        <div className="auth-divider"><span>dev/demo local fallback</span></div>
+        <form className="auth-form" onSubmit={onSubmit}>
+          <label>
+            이메일
+            <input name="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+          </label>
+          <label>
+            비밀번호
+            <input name="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+          </label>
+          {notice ? <p className="settings-notice danger" role="alert">{notice}</p> : null}
+          <button className="btn primary" type="submit" disabled={mutation.isPending}>{mutation.isPending ? '로그인 중' : '로그인'}</button>
+        </form>
         <p className="muted auth-switch">계정이 없나요? <Link to="/signup">가입하기</Link></p>
       </section>
     </div>
