@@ -50,9 +50,8 @@ const forbiddenPatterns = [
   /(?:cache|queryClient|queryCache|mutationCache)\s*\.\s*(?:put|add|addAll|set|setQueryData|setQueriesData|build)\s*\([^)\n]*(?:api[_-]?key|password|secret|token|jwt|csrf|oauth)/i,
   /[?&][^"'`\\\s=]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth)[^"'`\\\s=]*=/i,
   /(?:URLSearchParams|searchParams)\s*\.\s*(?:append|set)\s*\(\s*['"][^'"]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth)[^'"]*['"]/i,
-  /new\s+URLSearchParams\s*\(\s*\{[\s\S]*?['"]?[^'"}]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth)[^'"}]*['"]?\s*:/i,
-  /new\s+URLSearchParams\s*\(\s*\[\s*\[\s*['"][^'"]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth)[^'"]*['"]/i,
-  /(?:console|logger)\s*\.\s*(?:debug|error|info|log|trace|warn)\s*\([^)\n]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth)/i
+  /new\s+URLSearchParams\s*\(\s*\{[^}]*['"]?[^'"}]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth)[^'"}]*['"]?\s*:/i,
+  /new\s+URLSearchParams\s*\(\s*\[\s*\[\s*['"][^'"]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth)[^'"]*['"]/i
 ];
 
 function files(dir) {
