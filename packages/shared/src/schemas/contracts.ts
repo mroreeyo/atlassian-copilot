@@ -304,7 +304,7 @@ export const AuthUserSchema = z.object({
 });
 
 const PasswordSchema = z.string()
-  .min(10, '비밀번호는 10자 이상이어야 합니다.')
+  .min(8, '비밀번호는 8자 이상이어야 합니다.')
   .max(128, '비밀번호는 128자 이하여야 합니다.')
   .regex(/[a-z]/, '비밀번호에는 영문 소문자가 필요합니다.')
   .regex(/[A-Z]/, '비밀번호에는 영문 대문자가 필요합니다.')

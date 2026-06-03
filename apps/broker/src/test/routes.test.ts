@@ -210,6 +210,18 @@ describe('broker routes', () => {
     expect(response.body).not.toMatch(/password(Hash|Salt)?|akc_session|sessionId/i);
   }, 30_000);
 
+  it('accepts the documented eight-character password minimum when basic complexity is satisfied', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/signup',
+      payload: { email: uniqueAuthEmail('eight-char'), password: 'Pass1234' }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({ user: { email: expect.stringMatching(/^eight-char-\d+@example\.com$/) } });
+    expect(response.body).not.toMatch(/password(Hash|Salt)?|Pass1234|sessionId/i);
+  }, 30_000);
+
   it('rejects weak or duplicate signup requests without exposing stored password material', async () => {
     const email = uniqueAuthEmail('duplicate');
     const weak = await app.inject({ method: 'POST', url: '/api/auth/signup', payload: { email, password: 'weak' } });
