@@ -94,6 +94,22 @@ function isProductionHttpsUrl(value: string): boolean {
   }
 }
 
+
+function googleAuthProductionUrlDisabledReason(authBaseUrl: string, redirectUri: string, env: NodeJS.ProcessEnv): string | undefined {
+  if (env.NODE_ENV !== 'production') return undefined;
+  return isProductionHttpsUrl(authBaseUrl) && isProductionHttpsUrl(redirectUri) ? undefined : 'google_auth_production_url_required';
+}
+
+function isProductionHttpsUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.toLowerCase();
+    return parsed.protocol === 'https:' && host !== 'localhost' && host !== '127.0.0.1' && host !== '::1' && !host.endsWith('.localhost');
+  } catch {
+    return false;
+  }
+}
+
 export function googleAuthDisabledPayload(config = googleAuthConfig()): { error: string; reason: string } {
   return { error: 'Google 로그인은 아직 사용할 수 없습니다.', reason: config.disabledReason ?? 'google_auth_disabled' };
 }
