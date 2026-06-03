@@ -149,7 +149,7 @@ function safeGoogleCallbackError(error: unknown): string {
   return 'google_callback_failed';
 }
 
-function authRateLimitKey(ip: string): string {
+function authRateLimitKey(ip: string, _forwarded: string | string[] | undefined): string {
   return (ip || 'unknown').slice(0, 128);
 }
 

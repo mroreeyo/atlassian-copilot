@@ -19,12 +19,13 @@ export function googleAuthConfig(env = process.env): GoogleAuthConfig {
   const clientId = env.GOOGLE_CLIENT_ID?.trim() ?? '';
   const clientSecret = env.GOOGLE_CLIENT_SECRET?.trim() ?? '';
   const enabledFlag = env.AKC_ENABLE_GOOGLE_AUTH === 'true';
-  const productionDisabledReason = googleAuthProductionDisabledReason(authBaseUrl, redirectUri, env);
+  const productionUrlDisabledReason = googleAuthProductionUrlDisabledReason(authBaseUrl, redirectUri, env);
+  const storageDisabledReason = googleAuthStorageDisabledReason(env);
   const disabledReason = !enabledFlag
     ? 'google_auth_disabled'
     : !clientId || !clientSecret
       ? 'google_auth_misconfigured'
-      : productionDisabledReason;
+      : storageDisabledReason ?? productionUrlDisabledReason;
 
   return {
     enabled: !disabledReason,
@@ -67,6 +68,7 @@ export function googleAuthStorageDisabledReason(env = process.env): string | und
   if (!env.AKC_BROKER_STATE_DIR?.trim() && !env.AKC_AUTH_DB_PATH?.trim()) return 'google_auth_persistent_storage_required';
   const configuredKey = env.AKC_CREDENTIAL_ENCRYPTION_KEY?.trim();
   if (!configuredKey) return 'google_auth_secure_storage_required';
+  if (!env.AKC_BROKER_STATE_DIR?.trim() && !env.AKC_AUTH_DB_PATH?.trim()) return 'google_auth_durable_storage_required';
   try {
     if (Buffer.from(configuredKey, 'base64').length !== 32) return 'google_auth_secure_storage_invalid';
   } catch {
@@ -74,6 +76,22 @@ export function googleAuthStorageDisabledReason(env = process.env): string | und
   }
   if (!env.AKC_BROKER_STATE_DIR?.trim() && !env.AKC_AUTH_DB_PATH?.trim()) return 'google_auth_persistent_state_required';
   return undefined;
+}
+
+
+function googleAuthProductionUrlDisabledReason(authBaseUrl: string, redirectUri: string, env: NodeJS.ProcessEnv): string | undefined {
+  if (env.NODE_ENV !== 'production') return undefined;
+  return isProductionHttpsUrl(authBaseUrl) && isProductionHttpsUrl(redirectUri) ? undefined : 'google_auth_production_url_required';
+}
+
+function isProductionHttpsUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.toLowerCase();
+    return parsed.protocol === 'https:' && host !== 'localhost' && host !== '127.0.0.1' && host !== '::1' && !host.endsWith('.localhost');
+  } catch {
+    return false;
+  }
 }
 
 export function googleAuthDisabledPayload(config = googleAuthConfig()): { error: string; reason: string } {

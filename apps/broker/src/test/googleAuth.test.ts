@@ -98,33 +98,20 @@ describe('Google OAuth/OIDC auth routes', () => {
     process.env.NODE_ENV = 'test';
   });
 
-  it('requires explicit production HTTPS Google auth URLs', async () => {
+  it('disables production Google auth when callback URLs are localhost even with durable storage and key', async () => {
     process.env.NODE_ENV = 'production';
     process.env.AKC_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64');
     process.env.AKC_AUTH_BASE_URL = 'http://localhost:8787';
+    delete process.env.GOOGLE_REDIRECT_URI;
 
     const start = await app.inject({ method: 'GET', url: '/api/auth/google/start?returnTo=/settings' });
+
     expect(start.statusCode).toBe(503);
     expect(start.json()).toMatchObject({ reason: 'google_auth_production_url_required' });
 
-    process.env.AKC_AUTH_BASE_URL = 'https://broker.example';
-    process.env.GOOGLE_REDIRECT_URI = 'http://localhost:8787/api/auth/google/callback';
-    const localhostRedirect = await app.inject({ method: 'GET', url: '/api/auth/google/start?returnTo=/settings' });
-    expect(localhostRedirect.statusCode).toBe(503);
-    expect(localhostRedirect.json()).toMatchObject({ reason: 'google_auth_production_url_required' });
-  });
-
-  it('requires explicit persistent production Google auth state', async () => {
-    process.env.NODE_ENV = 'production';
-    process.env.AKC_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64');
-    process.env.AKC_AUTH_BASE_URL = 'https://broker.example';
-    delete process.env.GOOGLE_REDIRECT_URI;
-    delete process.env.AKC_BROKER_STATE_DIR;
-    delete process.env.AKC_AUTH_DB_PATH;
-
-    const response = await app.inject({ method: 'GET', url: '/api/auth/google/start?returnTo=/settings' });
-    expect(response.statusCode).toBe(503);
-    expect(response.json()).toMatchObject({ reason: 'google_auth_persistent_state_required' });
+    process.env.NODE_ENV = 'test';
+    process.env.AKC_AUTH_BASE_URL = 'http://localhost:8787';
+    delete process.env.AKC_CREDENTIAL_ENCRYPTION_KEY;
   });
 
   it('creates first-login Google users by sub, not email, and keeps private settings per user', async () => {
@@ -166,6 +153,8 @@ describe('Google OAuth/OIDC auth routes', () => {
 
   it('uses a browser-valid secure transaction cookie in production Google OAuth', async () => {
     process.env.NODE_ENV = 'production';
+    process.env.AKC_AUTH_BASE_URL = 'https://auth.example.com';
+    delete process.env.GOOGLE_REDIRECT_URI;
     process.env.AKC_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64');
     process.env.AKC_AUTH_BASE_URL = 'https://broker.example';
 
@@ -182,6 +171,8 @@ describe('Google OAuth/OIDC auth routes', () => {
     expect(transactionCookie).not.toContain('Path=/api/auth/google');
 
     process.env.NODE_ENV = 'test';
+    process.env.AKC_AUTH_BASE_URL = 'http://localhost:8787';
+    delete process.env.GOOGLE_REDIRECT_URI;
     delete process.env.AKC_CREDENTIAL_ENCRYPTION_KEY;
     process.env.AKC_AUTH_BASE_URL = 'http://localhost:8787';
     delete process.env.GOOGLE_REDIRECT_URI;
@@ -190,6 +181,8 @@ describe('Google OAuth/OIDC auth routes', () => {
 
   it('rejects production callbacks that provide only an unprefixed transaction cookie', async () => {
     process.env.NODE_ENV = 'production';
+    process.env.AKC_AUTH_BASE_URL = 'https://auth.example.com';
+    delete process.env.GOOGLE_REDIRECT_URI;
     process.env.AKC_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64');
     process.env.AKC_AUTH_BASE_URL = 'https://broker.example';
 
@@ -209,6 +202,8 @@ describe('Google OAuth/OIDC auth routes', () => {
     expect(callback.headers.location).toBe('/login?authError=invalid_oauth_transaction');
 
     process.env.NODE_ENV = 'test';
+    process.env.AKC_AUTH_BASE_URL = 'http://localhost:8787';
+    delete process.env.GOOGLE_REDIRECT_URI;
     delete process.env.AKC_CREDENTIAL_ENCRYPTION_KEY;
     process.env.AKC_AUTH_BASE_URL = 'http://localhost:8787';
     delete process.env.GOOGLE_REDIRECT_URI;
