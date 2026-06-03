@@ -1,18 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { AuthLoginRequestSchema, AuthSessionResponseSchema, AuthSignupRequestSchema } from '@akc/shared';
-import { AuthStoreError, loginLocalUser, signupLocalUser, isLocalAuthEnabled } from '../services/auth/authStore.js';
-import { clearSessionCookie, currentAuthSession, invalidateRequestSession, requireCsrf, rotateRequestSession, setSessionCookie } from '../services/auth/sessionCookie.js';
-import { completeGoogleOidcCallback, GoogleAuthConfigError, googleAuthConfigured, googleAuthEnabledFlag, startGoogleOidc } from '../services/auth/googleOidc.js';
+import { AuthStoreError, loginLocalUser, signupLocalUser } from '../services/auth/authStore.js';
+import { clearSessionCookie, currentAuthUser, invalidateRequestSession, setSessionCookie } from '../services/auth/sessionCookie.js';
+import { registerGoogleAuthRoutes } from './googleAuth.js';
 
 export function registerAuthRoutes(app: FastifyInstance): void {
-  app.get('/api/auth/config', async (_request, reply) => {
-    return reply.send({
-      googleEnabled: googleAuthConfigured(),
-      googleConfigured: googleAuthConfigured(),
-      localAuthEnabled: isLocalAuthEnabled()
-    });
-  });
-
+  registerGoogleAuthRoutes(app);
   app.post('/api/auth/signup', async (request, reply) => {
     const parsed = AuthSignupRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? '가입 정보가 올바르지 않습니다.' });
