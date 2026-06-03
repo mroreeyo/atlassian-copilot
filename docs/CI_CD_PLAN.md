@@ -27,7 +27,7 @@ Run on pull request and main push:
 - no `VITE_OPENROUTER_API_KEY`
 - no `VITE_ATLASSIAN_TOKEN`
 - no direct frontend provider hostnames such as `https://api.openai.com`, `https://api.anthropic.com`, or `https://openrouter.ai`
-- no `VITE_GOOGLE_CLIENT_SECRET`, `VITE_GOOGLE_ACCESS_TOKEN`, `VITE_GOOGLE_ID_TOKEN`, `VITE_GOOGLE_REFRESH_TOKEN`, `VITE_GOOGLE_TOKEN`, or `VITE_AKC_AUTH_SECRET_KEY`
+- no `VITE_GOOGLE_CLIENT_SECRET`, `VITE_GOOGLE_ACCESS_TOKEN`, `VITE_GOOGLE_ID_TOKEN`, `VITE_GOOGLE_REFRESH_TOKEN`, `VITE_GOOGLE_TOKEN`, `VITE_AKC_AUTH_CSRF_SECRET`, or `VITE_AKC_CREDENTIAL_ENCRYPTION_KEY`
 - no browser persistence/logging/URL placement for Google OAuth material, session tokens, or CSRF tokens
 
 ## 3. CD

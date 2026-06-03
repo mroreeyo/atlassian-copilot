@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMockRunEvents, mockHistory, mockSettingsStatus } from '@akc/shared/mock';
-import { clearAtlassianSettings, clearLlmSettings, createCopilotRun, decodeSseFrames, getCopilotSuggestions, getHistory, getLlmProviderModels, getSettingsStatus, saveAtlassianSettings, saveLlmSettings, streamCopilotEvents, testAtlassianSettings, testLlmSettings } from '../services/copilot/brokerCopilotClient';
+import { clearMemoryCsrfToken, setMemoryCsrfToken } from '../services/auth/csrfToken';
+import { approveAction, cancelAction, clearAtlassianSettings, clearLlmSettings, createCopilotRun, decodeSseFrames, getCopilotSuggestions, getHistory, getLlmProviderModels, getSettingsStatus, saveAtlassianSettings, saveLlmSettings, streamCopilotEvents, testAtlassianSettings, testLlmSettings } from '../services/copilot/brokerCopilotClient';
 
 function toSse(events: unknown[]): string {
   return events.map((event) => `event: ${(event as { type: string }).type}\ndata: ${JSON.stringify(event)}\n\n`).join('');
@@ -23,10 +24,15 @@ function responseFromChunks(chunks: string[]): Response {
   return { ok: true, status: 200, body } as Response;
 }
 
+function expectCsrfHeader(init: RequestInit | undefined, value: string): void {
+  expect(init?.headers).toMatchObject({ 'X-CSRF-Token': value });
+}
+
 describe('Broker Copilot client', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
+    clearMemoryCsrfToken();
   });
 
   it('decodes Broker SSE framing into canonical events', () => {
@@ -51,11 +57,15 @@ describe('Broker Copilot client', () => {
       return new Response('not found', { status: 404 });
     });
 
+    setMemoryCsrfToken('csrf-run-create-memory-only');
     const run = await createCopilotRun({ message: 'hello', mode: 'readonly' });
     const streamed = [];
     for await (const event of streamCopilotEvents(run.streamUrl)) streamed.push(event);
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/copilot/runs', expect.objectContaining({ method: 'POST' }));
+    expect(fetchMock).toHaveBeenCalledWith('/api/copilot/runs', expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({ 'X-CSRF-Token': 'csrf-run-create-memory-only' })
+    }));
     expect(streamed.map((event) => event.type)).toContain('run.completed');
     expect(streamed.map((event) => event.type)).not.toContain('report_draft.completed');
   });
@@ -128,6 +138,7 @@ describe('Broker Copilot client', () => {
   });
 
   it('saves and clears Atlassian settings through Broker-only endpoints', async () => {
+    setMemoryCsrfToken('csrf-atlassian-settings');
     const saved = {
       status: {
         ...mockSettingsStatus,
@@ -166,13 +177,16 @@ describe('Broker Copilot client', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.endsWith('/api/settings/atlassian') && init?.method === 'POST') {
+        expectCsrfHeader(init, 'csrf-atlassian-settings');
         expect(init.body).toContain('token_1234567890');
         return new Response(JSON.stringify(saved), { status: 200 });
       }
       if (url.endsWith('/api/settings/atlassian/test') && init?.method === 'POST') {
+        expectCsrfHeader(init, 'csrf-atlassian-settings');
         return new Response(JSON.stringify(tested), { status: 200 });
       }
       if (url.endsWith('/api/settings/atlassian') && init?.method === 'DELETE') {
+        expectCsrfHeader(init, 'csrf-atlassian-settings');
         return new Response(JSON.stringify(cleared), { status: 200 });
       }
       return new Response('not found', { status: 404 });
@@ -193,6 +207,7 @@ describe('Broker Copilot client', () => {
   });
 
   it('saves, tests, and clears LLM settings through Broker-only endpoints', async () => {
+    setMemoryCsrfToken('csrf-llm-settings');
     const saved = {
       status: {
         ...mockSettingsStatus,
@@ -215,13 +230,16 @@ describe('Broker Copilot client', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.endsWith('/api/settings/llm') && init?.method === 'POST') {
+        expectCsrfHeader(init, 'csrf-llm-settings');
         expect(init.body).toContain('sk-or-personal-secret');
         return new Response(JSON.stringify(saved), { status: 200 });
       }
       if (url.endsWith('/api/settings/llm/test') && init?.method === 'POST') {
+        expectCsrfHeader(init, 'csrf-llm-settings');
         return new Response(JSON.stringify(tested), { status: 200 });
       }
       if (url.endsWith('/api/settings/llm') && init?.method === 'DELETE') {
+        expectCsrfHeader(init, 'csrf-llm-settings');
         return new Response(JSON.stringify(cleared), { status: 200 });
       }
       return new Response('not found', { status: 404 });
@@ -233,6 +251,29 @@ describe('Broker Copilot client', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/settings/llm', expect.objectContaining({ method: 'POST' }));
     expect(fetchMock).toHaveBeenCalledWith('/api/settings/llm/test', expect.objectContaining({ method: 'POST' }));
     expect(fetchMock).toHaveBeenCalledWith('/api/settings/llm', expect.objectContaining({ method: 'DELETE' }));
+  });
+
+  it('sends CSRF headers for action review approve and cancel mutations', async () => {
+    setMemoryCsrfToken('csrf-action-review');
+    const approved = { actionId: 'act_1', status: 'mock_recorded', executed: false, message: 'recorded' };
+    const cancelled = { actionId: 'act_1', status: 'cancelled', executed: false, reason: '사용자가 작업 검토에서 취소했습니다.' };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/api/copilot/actions/act_1/approve') && init?.method === 'POST') {
+        expectCsrfHeader(init, 'csrf-action-review');
+        return new Response(JSON.stringify(approved), { status: 200 });
+      }
+      if (url.endsWith('/api/copilot/actions/act_1/cancel') && init?.method === 'POST') {
+        expectCsrfHeader(init, 'csrf-action-review');
+        return new Response(JSON.stringify(cancelled), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    await expect(approveAction('act_1')).resolves.toEqual(approved);
+    await expect(cancelAction('act_1')).resolves.toEqual(cancelled);
+    expect(fetchMock).toHaveBeenCalledWith('/api/copilot/actions/act_1/approve', expect.objectContaining({ method: 'POST' }));
+    expect(fetchMock).toHaveBeenCalledWith('/api/copilot/actions/act_1/cancel', expect.objectContaining({ method: 'POST' }));
   });
 
   it('fetches provider model catalogs only through the relative Broker endpoint', async () => {

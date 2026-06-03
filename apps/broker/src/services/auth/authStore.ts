@@ -31,7 +31,7 @@ export function normalizeAuthEmail(email: string): string {
 }
 
 export function isLocalAuthEnabled(env = process.env): boolean {
-  if (env.NODE_ENV === 'production') return env.AKC_ENABLE_LOCAL_AUTH === 'true';
+  if (env.NODE_ENV === 'production') return env.AKC_ENABLE_LOCAL_AUTH === 'true' && hasExplicitPersistentAuthStorage(env);
   return env.AKC_ENABLE_LOCAL_AUTH !== 'false';
 }
 
@@ -125,4 +125,8 @@ export class AuthStoreError extends Error {
   constructor(public readonly code: 'duplicate_user' | 'invalid_credentials' | 'rate_limited' | 'local_auth_disabled', message: string) {
     super(message);
   }
+}
+
+function hasExplicitPersistentAuthStorage(env: NodeJS.ProcessEnv): boolean {
+  return Boolean(env.AKC_BROKER_STATE_DIR?.trim() || env.AKC_AUTH_DB_PATH?.trim());
 }
