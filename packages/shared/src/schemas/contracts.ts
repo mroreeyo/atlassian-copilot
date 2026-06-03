@@ -299,8 +299,11 @@ export const HistoryResponseSchema = z.object({
 });
 
 export const AuthUserSchema = z.object({
+  id: z.string().trim().min(1),
   email: z.string().email(),
-  createdAt: z.string().trim().min(1)
+  createdAt: z.string().trim().min(1),
+  displayName: z.string().trim().min(1).optional(),
+  avatarUrl: z.string().url().optional()
 });
 
 const PasswordSchema = z.string()
@@ -321,7 +324,8 @@ export const AuthLoginRequestSchema = z.object({
 });
 
 export const AuthSessionResponseSchema = z.object({
-  user: AuthUserSchema
+  user: AuthUserSchema,
+  csrfToken: z.string().trim().min(32).optional()
 });
 
 export const AuthLogoutResponseSchema = z.object({

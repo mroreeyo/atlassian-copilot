@@ -324,8 +324,11 @@ export interface HistoryResponse {
 }
 
 export interface AuthUser {
+  id: string;
   email: string;
   createdAt: string;
+  displayName?: string | undefined;
+  avatarUrl?: string | undefined;
 }
 
 export interface AuthSignupRequest {
@@ -340,6 +343,7 @@ export interface AuthLoginRequest {
 
 export interface AuthSessionResponse {
   user: AuthUser;
+  csrfToken?: string | undefined;
 }
 
 export interface AuthLogoutResponse {
