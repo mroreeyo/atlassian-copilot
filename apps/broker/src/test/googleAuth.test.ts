@@ -258,7 +258,6 @@ describe('Google OAuth/OIDC auth routes', () => {
     const signup = await app.inject({
       method: 'POST',
       url: '/api/auth/signup',
-      headers: { origin: 'http://localhost:5173' },
       payload: { email: uniqueLocalEmail(), password: 'StrongPass123' }
     });
     const existingCookie = cookieHeaderFromSetCookie(signup, 'akc_session');
@@ -361,11 +360,6 @@ function cookieValues(response: { headers: Record<string, unknown> }): string[] 
 function uniqueLocalEmail(): string {
   localAuthCounter += 1;
   return `google-local-${localAuthCounter}@example.com`;
-}
-
-function setProductionGoogleUrls(): void {
-  process.env.AKC_AUTH_BASE_URL = 'https://copilot.example.com';
-  process.env.GOOGLE_REDIRECT_URI = 'https://copilot.example.com/api/auth/google/callback';
 }
 
 function restoreEnv(key: keyof typeof originalEnv, value: string | undefined): void {

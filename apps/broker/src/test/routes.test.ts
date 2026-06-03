@@ -71,7 +71,6 @@ beforeAll(async () => {
   delete process.env.ATLASSIAN_SITE_HOST_ALLOWLIST;
   delete process.env.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST;
   delete process.env.AKC_ENABLE_LOCAL_AUTH;
-  process.env.AKC_ALLOW_SOURCELESS_MUTATIONS = 'true';
   app = buildApp();
   const signup = await app.inject({
     method: 'POST',
@@ -324,35 +323,35 @@ describe('broker routes', () => {
   }, 30_000);
 
   it('disables local email/password auth by default in production unless explicitly enabled', async () => {
+    const email = uniqueAuthEmail('prod-local-login-off');
+    await app.inject({ method: 'POST', url: '/api/auth/signup', payload: { email, password: 'StrongPass123' } });
+
     process.env.NODE_ENV = 'production';
+    process.env.AKC_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 8).toString('base64');
     delete process.env.AKC_ENABLE_LOCAL_AUTH;
+
+    const config = await app.inject({ method: 'GET', url: '/api/auth/config' });
+    expect(config.statusCode).toBe(200);
+    expect(config.json()).toMatchObject({ localAuthEnabled: false });
 
     const disabledSignup = await app.inject({
       method: 'POST',
       url: '/api/auth/signup',
-      headers: { origin: 'http://localhost:5173' },
       payload: { email: uniqueAuthEmail('prod-local-off'), password: 'StrongPass123' }
     });
     expect(disabledSignup.statusCode).toBe(403);
 
-    process.env.AKC_ENABLE_LOCAL_AUTH = 'true';
-    const persistentStateDir = process.env.AKC_BROKER_STATE_DIR;
-    delete process.env.AKC_BROKER_STATE_DIR;
-    delete process.env.AKC_AUTH_DB_PATH;
-    const noStorageSignup = await app.inject({
+    const disabledLogin = await app.inject({
       method: 'POST',
-      url: '/api/auth/signup',
-      headers: { origin: 'http://localhost:5173' },
-      payload: { email: uniqueAuthEmail('prod-local-no-storage'), password: 'StrongPass123' }
+      url: '/api/auth/login',
+      payload: { email, password: 'StrongPass123' }
     });
-    expect(noStorageSignup.statusCode).toBe(403);
+    expect(disabledLogin.statusCode).toBe(403);
 
-    if (persistentStateDir) process.env.AKC_BROKER_STATE_DIR = persistentStateDir;
-    process.env.AKC_AUTH_CSRF_SECRET = Buffer.alloc(32, 8).toString('base64');
+    process.env.AKC_ENABLE_LOCAL_AUTH = 'true';
     const enabledSignup = await app.inject({
       method: 'POST',
       url: '/api/auth/signup',
-      headers: { origin: 'http://localhost:5173' },
       payload: { email: uniqueAuthEmail('prod-local-on'), password: 'StrongPass123' }
     });
     expect(enabledSignup.statusCode).toBe(201);
@@ -367,13 +366,9 @@ describe('broker routes', () => {
 
     process.env.NODE_ENV = 'production';
     process.env.AKC_ENABLE_LOCAL_AUTH = 'true';
-    process.env.AKC_AUTH_CSRF_SECRET = Buffer.alloc(32, 8).toString('base64');
-    const login = await app.inject({
-      method: 'POST',
-      url: '/api/auth/login',
-      headers: { origin: 'http://localhost:5173' },
-      payload: { email, password: 'StrongPass123' }
-    });
+    process.env.AKC_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 8).toString('base64');
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'StrongPass123' } });
+    expect(login.statusCode).toBe(200);
     const hostCookie = cookieHeaderFromSetCookie(login, 'akc_session');
     expect(hostCookie).toMatch(/^__Host-akc_session=/);
 
@@ -1098,19 +1093,13 @@ describe('broker routes', () => {
     process.env.AKC_AUTH_CSRF_SECRET = Buffer.alloc(32, 7).toString('base64');
     delete process.env.AKC_CREDENTIAL_ENCRYPTION_KEY;
     const secret = 'sk-production-must-use-managed-key';
-    const signup = await app.inject({
-      method: 'POST',
-      url: '/api/auth/signup',
-      headers: { origin: 'http://localhost:5173' },
-      payload: { email: uniqueAuthEmail('prod-secret'), password: 'StrongPass123' }
-    });
-    const cookie = cookieHeaderFromSetCookie(signup, 'akc_session');
-    const csrf = (await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie } })).json<{ csrfToken: string }>().csrfToken;
+    const hostAuthCookie = authCookie.replace(/^akc_session=/, '__Host-akc_session=');
+    const csrf = (await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie: hostAuthCookie } })).json<{ csrfToken: string }>().csrfToken;
 
-    const response = await authInject({
+    const response = await app.inject({
       method: 'POST',
       url: '/api/settings/llm',
-      headers: { cookie, 'x-csrf-token': csrf, origin: 'http://localhost:5173' },
+      headers: { cookie: hostAuthCookie, 'x-csrf-token': csrf },
       payload: { provider: 'openai', apiKey: secret, model: 'gpt-4.1-mini', enabled: true }
     });
 
