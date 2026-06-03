@@ -58,7 +58,7 @@ VITE_MCP_SERVER_URL=
 
 Google OAuth/OIDC is owned by the Broker. The web app may only navigate to `/api/auth/google/start?returnTo=...`; it must never receive, store, log, cache, or place in URLs any Google authorization code, ID token, access token, refresh token, client secret, OAuth state/nonce, session token, or CSRF token. CSRF is returned only by the Broker session endpoint and kept in module memory for `X-CSRF-Token` headers; it is forbidden in localStorage, sessionStorage, IndexedDB, persistent React Query cache, URL query/hash, logs, or analytics.
 
-Google login must fail closed unless DB-backed hashed sessions, session-bound CSRF, user-scoped private stores, durable Broker auth storage, a managed credential encryption key, and non-localhost HTTPS production auth URLs are all complete. Google identities are keyed by provider plus stable Google `sub`; email is display metadata only. Existing singleton settings/secrets must be quarantined and never auto-assigned to the first Google user.
+Google login must fail closed unless DB-backed hashed sessions, session-bound CSRF, and user-scoped private stores are all complete. Google identities are keyed by provider plus stable Google `sub`; email is display metadata only. Existing singleton settings/secrets must be quarantined and never auto-assigned to the first Google user.
 
 Broker env additions:
 
@@ -66,18 +66,18 @@ Broker env additions:
 AKC_AUTH_BASE_URL=http://localhost:8787
 AKC_WEB_BASE_URL=http://localhost:5173
 AKC_ENABLE_GOOGLE_AUTH=false
-# Production default is local auth disabled unless AKC_ENABLE_LOCAL_AUTH=true is set deliberately.
-AKC_ENABLE_LOCAL_AUTH=true
+AKC_ENABLE_LOCAL_AUTH=true # required explicit opt-in for production local email/password auth
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=http://localhost:8787/api/auth/google/callback
 GOOGLE_ALLOWED_HOSTED_DOMAIN=
 AKC_AUTH_CSRF_SECRET=
 AKC_CREDENTIAL_ENCRYPTION_KEY=
+AKC_BROKER_STATE_DIR=
 AKC_AUTH_DB_PATH=.akc-state/auth.sqlite
 ```
 
-Frontend may use non-secret UI flags such as `VITE_BROKER_BASE_URL` and `VITE_AKC_ENABLE_LOCAL_AUTH`, but must not define any `VITE_GOOGLE_*` secret/token or `VITE_AKC_AUTH_CSRF_SECRET` / `AKC_CREDENTIAL_ENCRYPTION_KEY`.
+In production, Google auth is disabled unless the Broker uses non-localhost HTTPS auth and redirect URLs plus explicit persistent state (`AKC_BROKER_STATE_DIR` or `AKC_AUTH_DB_PATH`) and a managed 32-byte base64 `AKC_CREDENTIAL_ENCRYPTION_KEY`. Frontend may use non-secret UI flags such as `VITE_BROKER_BASE_URL` and `VITE_AKC_ENABLE_LOCAL_AUTH`, but must not define any `VITE_GOOGLE_*` secret/token, `VITE_AKC_AUTH_CSRF_SECRET`, or credential encryption key.
 
 ## 3. Tool Risk Levels
 
