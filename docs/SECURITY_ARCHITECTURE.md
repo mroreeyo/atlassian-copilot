@@ -53,6 +53,30 @@ VITE_ATLASSIAN_TOKEN=
 VITE_MCP_SERVER_URL=
 ```
 
+
+## 2.1 Broker-only Google auth boundary
+
+Google OAuth/OIDC is owned by the Broker. The web app may only navigate to `/api/auth/google/start?returnTo=...`; it must never receive, store, log, cache, or place in URLs any Google authorization code, ID token, access token, refresh token, client secret, OAuth state/nonce, session token, or CSRF token. CSRF is returned only by the Broker session endpoint and kept in module memory for `X-CSRF-Token` headers; it is forbidden in localStorage, sessionStorage, IndexedDB, persistent React Query cache, URL query/hash, logs, or analytics.
+
+Google login must fail closed unless DB-backed hashed sessions, session-bound CSRF, and user-scoped private stores are all complete. Google identities are keyed by provider plus stable Google `sub`; email is display metadata only. Existing singleton settings/secrets must be quarantined and never auto-assigned to the first Google user.
+
+Broker env additions:
+
+```env
+AKC_AUTH_BASE_URL=http://localhost:8787
+AKC_WEB_BASE_URL=http://localhost:5173
+AKC_ENABLE_GOOGLE_AUTH=false
+AKC_ENABLE_LOCAL_AUTH=true
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=http://localhost:8787/api/auth/google/callback
+GOOGLE_ALLOWED_HOSTED_DOMAIN=
+AKC_AUTH_SECRET_KEY=
+AKC_AUTH_DB_PATH=.akc-state/auth.sqlite
+```
+
+Frontend may use non-secret UI flags such as `VITE_BROKER_BASE_URL` and `VITE_AKC_ENABLE_LOCAL_AUTH`, but must not define any `VITE_GOOGLE_*` secret/token or `VITE_AKC_AUTH_SECRET_KEY`.
+
 ## 3. Tool Risk Levels
 
 ```ts

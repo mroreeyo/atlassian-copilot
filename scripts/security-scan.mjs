@@ -12,11 +12,20 @@ const forbiddenStrings = [
   'VITE_OPENROUTER_API_KEY',
   'VITE_ATLASSIAN_TOKEN',
   'VITE_MCP_SERVER_URL',
+  'VITE_GOOGLE_CLIENT_SECRET',
+  'VITE_GOOGLE_ACCESS_TOKEN',
+  'VITE_GOOGLE_ID_TOKEN',
+  'VITE_GOOGLE_REFRESH_TOKEN',
+  'VITE_GOOGLE_TOKEN',
+  'VITE_AKC_AUTH_SECRET_KEY',
   'ATLASSIAN_API_TOKEN',
   'OPENAI_API_KEY',
   'ANTHROPIC_API_KEY',
   'CLAUDE_API_KEY',
-  'OPENROUTER_API_KEY'
+  'OPENROUTER_API_KEY',
+  'GOOGLE_CLIENT_SECRET',
+  'GOOGLE_REFRESH_TOKEN',
+  'AKC_AUTH_SECRET_KEY'
 ];
 const forbiddenPatterns = [
   /from\s+['"]openai['"]/i,
@@ -30,6 +39,9 @@ const forbiddenPatterns = [
   /https?:\/\/api\.anthropic\.com/i,
   /https?:\/\/(?:api\.)?openrouter\.ai/i,
   /mcp-atlassian/i,
+  /indexedDB\s*\.\s*open\s*\([^)]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth|google)/i,
+  /(?:caches|CacheStorage)\s*\.\s*(?:open|put|match)\s*\([^)]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth|google)/i,
+  /(?:console\.(?:log|info|warn|error)|logger\.(?:log|info|warn|error))\s*\([^)]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth|google)/i,
   /(?:localStorage|sessionStorage)\s*\.\s*setItem\s*\(\s*['"][^'"]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth)[^'"]*['"]/i,
   /(?:localStorage|sessionStorage)\s*\[\s*['"][^'"]*(?:auth|credential|api[_-]?key|password|secret|token|session|jwt|csrf|oauth)[^'"]*['"]\s*\]\s*=/i,
   /(?:localStorage|sessionStorage)\s*\.\s*(?:auth|credential|apiKey|password|secret|token|session|jwt|csrf|oauth)[\w$]*\s*=/i,
@@ -68,4 +80,4 @@ if (failures.length > 0) {
   console.error(failures.join('\n'));
   process.exit(1);
 }
-console.info('security scan passed: frontend has no forbidden secret strings or direct integration imports');
+console.info('security scan passed: frontend has no forbidden secret strings, auth material persistence, or direct integration imports');

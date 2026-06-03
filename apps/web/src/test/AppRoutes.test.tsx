@@ -13,6 +13,7 @@ vi.mock('../services/auth/authClient', () => ({
   authSessionQueryKey: ['auth', 'session'],
   getAuthSession: vi.fn(async () => ({ user: null })),
   isLocalAuthEnabled: vi.fn(() => true),
+  normalizeAuthReturnTo: vi.fn((value: string | null | undefined) => value && value.startsWith('/') && !value.startsWith('//') ? value : '/settings'),
   login: vi.fn(async () => ({ user: { email: 'demo@example.com' } })),
   logout: vi.fn(async () => ({ user: null })),
   signup: vi.fn(async () => ({ user: { email: 'demo@example.com' } })),

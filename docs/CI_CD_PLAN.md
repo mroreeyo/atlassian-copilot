@@ -27,6 +27,8 @@ Run on pull request and main push:
 - no `VITE_OPENROUTER_API_KEY`
 - no `VITE_ATLASSIAN_TOKEN`
 - no direct frontend provider hostnames such as `https://api.openai.com`, `https://api.anthropic.com`, or `https://openrouter.ai`
+- no `VITE_GOOGLE_CLIENT_SECRET`, `VITE_GOOGLE_ACCESS_TOKEN`, `VITE_GOOGLE_ID_TOKEN`, `VITE_GOOGLE_REFRESH_TOKEN`, `VITE_GOOGLE_TOKEN`, or `VITE_AKC_AUTH_SECRET_KEY`
+- no browser persistence/logging/URL placement for Google OAuth material, session tokens, or CSRF tokens
 
 ## 3. CD
 
@@ -42,11 +44,17 @@ Recommended:
 
 Frontend:
 
-- no OpenAI/Atlassian secrets
+- no OpenAI/Atlassian/Google secrets or auth tokens
 - optionally `VITE_BROKER_BASE_URL`
+- optionally `VITE_AKC_ENABLE_LOCAL_AUTH=false` to hide local email/password forms when the Broker local-auth policy disables them
 
 Broker:
 
+- `AKC_AUTH_BASE_URL` / `AKC_WEB_BASE_URL`
+- `AKC_ENABLE_GOOGLE_AUTH=false` until DB sessions, CSRF, and user-scoped private stores pass gates
+- `AKC_ENABLE_LOCAL_AUTH`
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` / optional `GOOGLE_ALLOWED_HOSTED_DOMAIN`
+- `AKC_AUTH_SECRET_KEY` and `AKC_AUTH_DB_PATH` for DB-backed auth state
 - `OPENAI_API_KEY`
 - optional `AKC_ENABLE_LIVE_OPENAI=true` for future non-P0 OpenAI smoke only; P0 stays mock-only when unset/false
 - `ATLASSIAN_URL`
@@ -60,7 +68,7 @@ Broker:
 ## 5. Build Artifacts
 
 - web build output from `apps/web/dist`
-- broker deployment is separate from static web deployment
+- broker deployment is separate from static web deployment and must provide persistent auth DB storage, secret injection, no-cache auth/session/callback responses, and a same-origin `/api` reverse proxy where possible
 
 ## 6. Release Checklist
 
