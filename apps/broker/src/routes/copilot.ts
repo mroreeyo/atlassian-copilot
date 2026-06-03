@@ -23,20 +23,27 @@ import { buildSettingsStatus } from '../services/settings/settingsStatus.js';
 import { testConfiguredLlmConnection } from '../services/llm/llmProviderFactory.js';
 import { clearLlmModelCatalogCache, getLlmProviderModels } from '../services/llm/modelCatalog.js';
 import { buildCopilotSuggestions } from '../services/suggestions/copilotSuggestions.js';
-import { currentAuthUser, requireAuth } from '../services/auth/sessionCookie.js';
+import { currentAuthSession, requireAuthSession, requireCsrf } from '../services/auth/sessionCookie.js';
+import { userScopedEnv } from '../services/auth/userScope.js';
 
 export function registerCopilotRoutes(app: FastifyInstance): void {
   app.post('/api/copilot/runs', async (request, reply) => {
     const parsed = RunCreateRequestSchema.parse(request.body);
-    const user = currentAuthUser(request);
+    const session = currentAuthSession(request);
     const runId = `run_${randomUUID().slice(0, 8)}`;
-    storeRun({ runId, message: parsed.message, mode: user ? parsed.mode : 'mock' });
+    storeRun({ runId, message: parsed.message, mode: session ? parsed.mode : 'mock', userId: session?.user.id ?? null });
     return reply.send({ runId, streamUrl: `/api/copilot/runs/${runId}/stream` });
   });
 
   app.get('/api/copilot/runs/:id/stream', async (request, reply) => {
     const { id } = request.params as { id: string };
-    if (!getStoredRun(id)) return reply.code(404).send({ error: '알 수 없는 실행 ID' });
+    const existingRun = getStoredRun(id);
+    if (!existingRun) return reply.code(404).send({ error: '알 수 없는 실행 ID' });
+    if (existingRun.userId) {
+      const session = requireAuthSession(request, reply);
+      if (!session) return;
+      if (session.user.id !== existingRun.userId) return reply.code(404).send({ error: '알 수 없는 실행 ID' });
+    }
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
@@ -53,10 +60,11 @@ export function registerCopilotRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/copilot/actions/:id/approve', async (request, reply) => {
-    if (!requireAuth(request, reply)) return;
+    const session = requireAuthSession(request, reply);
+    if (!session || !requireCsrf(request, reply, session)) return;
     const { id } = request.params as { id: string };
     const body = ActionApprovalRequestSchema.parse(request.body);
-    const found = findActionReview(id);
+    const found = findActionReview(id, session.user.id);
     if (!found) return reply.code(404).send({ error: '알 수 없는 작업 검토 ID' });
     if (found.resolution.status !== 'pending') {
       if (found.resolution.status === 'cancelled') return reply.code(409).send({ error: '작업 검토가 이미 취소되었습니다.' });
@@ -104,10 +112,11 @@ export function registerCopilotRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/copilot/actions/:id/cancel', async (request, reply) => {
-    if (!requireAuth(request, reply)) return;
+    const session = requireAuthSession(request, reply);
+    if (!session || !requireCsrf(request, reply, session)) return;
     const { id } = request.params as { id: string };
     const body = ActionCancelRequestSchema.parse(request.body);
-    const found = findActionReview(id);
+    const found = findActionReview(id, session.user.id);
     if (!found) return reply.code(404).send({ error: '알 수 없는 작업 검토 ID' });
     if (found.resolution.status !== 'pending') {
       if (found.resolution.status === 'cancelled') return reply.send(found.resolution.response);
@@ -130,7 +139,8 @@ export function registerCopilotRoutes(app: FastifyInstance): void {
   });
 
   app.get('/api/history', async (request, reply) => {
-    if (!requireAuth(request, reply)) return;
+    const session = requireAuthSession(request, reply);
+    if (!session) return;
     return reply.send({ runs: [] });
   });
 
@@ -139,109 +149,124 @@ export function registerCopilotRoutes(app: FastifyInstance): void {
   });
 
   app.get('/api/settings/status', async (request, reply) => {
-    if (!requireAuth(request, reply)) return;
-    return reply.send(buildSettingsStatus());
+    const session = requireAuthSession(request, reply);
+    if (!session) return;
+    return reply.send(buildSettingsStatus(userScopedEnv(session.user.id)));
   });
 
   app.post('/api/settings/atlassian', async (request, reply) => {
-    if (!requireAuth(request, reply)) return;
+    const session = requireAuthSession(request, reply);
+    if (!session || !requireCsrf(request, reply, session)) return;
+    const env = userScopedEnv(session.user.id);
     const parsed = AtlassianSettingsRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'Atlassian 설정 형식이 올바르지 않습니다.' });
     try {
-      savePersonalAtlassianSettings(parsed.data);
+      savePersonalAtlassianSettings(parsed.data, env);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : 'Atlassian 설정을 저장할 수 없습니다.' });
     }
     return reply.send({
-      status: buildSettingsStatus(),
+      status: buildSettingsStatus(env),
       message: 'Atlassian 연결을 저장했습니다. 브라우저에는 토큰을 저장하지 않았습니다.'
     });
   });
 
   app.delete('/api/settings/atlassian', async (request, reply) => {
-    if (!requireAuth(request, reply)) return;
-    clearPersonalAtlassianSettings();
+    const session = requireAuthSession(request, reply);
+    if (!session || !requireCsrf(request, reply, session)) return;
+    const env = userScopedEnv(session.user.id);
+    clearPersonalAtlassianSettings(env);
     return reply.send({
-      status: buildSettingsStatus(),
+      status: buildSettingsStatus(env),
       message: '개인 Atlassian 연결을 지웠습니다.'
     });
   });
 
   app.post('/api/settings/atlassian/test', async (request, reply) => {
-    if (!requireAuth(request, reply)) return;
-    const before = readResolvedAtlassianCredentials();
+    const session = requireAuthSession(request, reply);
+    if (!session || !requireCsrf(request, reply, session)) return;
+    const env = userScopedEnv(session.user.id);
+    const before = readResolvedAtlassianCredentials(env);
     if (!before.configured || !before.apiToken) {
       const message = '테스트할 수 있는 Atlassian 연결 정보가 없습니다. 사이트 URL, 이메일, API 토큰을 저장한 뒤 테스트하세요.';
       return reply.code(409).send({
         error: message,
-        status: buildSettingsStatus(),
+        status: buildSettingsStatus(env),
         ok: false,
         message
       });
     }
-    const result = await testResolvedAtlassianConnection(before);
+    const result = await testResolvedAtlassianConnection(before, env);
     if (before.source === 'personal') {
       recordPersonalAtlassianValidation({
         ok: result.ok,
         message: result.message,
         validatedAt: result.ok ? new Date().toISOString() : undefined,
         error: result.ok ? undefined : result.message
-      });
+      }, env);
     }
     return reply.send({
-      status: buildSettingsStatus(),
+      status: buildSettingsStatus(env),
       ok: result.ok,
       message: result.message
     });
   });
 
   app.post('/api/settings/llm', async (request, reply) => {
-    if (!requireAuth(request, reply)) return;
+    const session = requireAuthSession(request, reply);
+    if (!session || !requireCsrf(request, reply, session)) return;
+    const env = userScopedEnv(session.user.id);
     const parsed = LlmSettingsRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'LLM 설정 형식이 올바르지 않습니다.' });
     try {
-      savePersonalLlmSettings(parsed.data);
+      savePersonalLlmSettings(parsed.data, env);
       clearLlmModelCatalogCache();
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : 'LLM 설정을 저장할 수 없습니다.' });
     }
     return reply.send({
-      status: buildSettingsStatus(),
+      status: buildSettingsStatus(env),
       message: 'LLM 설정을 저장했습니다. 브라우저에는 API 키를 저장하지 않았습니다.'
     });
   });
 
   app.delete('/api/settings/llm', async (request, reply) => {
-    if (!requireAuth(request, reply)) return;
-    clearPersonalLlmSettings();
+    const session = requireAuthSession(request, reply);
+    if (!session || !requireCsrf(request, reply, session)) return;
+    const env = userScopedEnv(session.user.id);
+    clearPersonalLlmSettings(env);
     clearLlmModelCatalogCache();
     return reply.send({
-      status: buildSettingsStatus(),
+      status: buildSettingsStatus(env),
       message: '개인 LLM 설정을 지웠습니다.'
     });
   });
 
 
   app.get('/api/settings/llm/providers/:provider/models', async (request, reply) => {
-    if (!requireAuth(request, reply)) return;
+    const session = requireAuthSession(request, reply);
+    if (!session) return;
+    const env = userScopedEnv(session.user.id);
     const { provider } = request.params as { provider: string };
     const parsed = LlmProviderSchema.safeParse(provider);
     if (!parsed.success) return reply.code(400).send({ error: '지원하지 않는 LLM 제공자입니다.' });
     const query = request.query as { refresh?: string };
     const refresh = query.refresh === 'true';
-    const response = await getLlmProviderModels(parsed.data, refresh);
+    const response = await getLlmProviderModels(parsed.data, refresh, env);
     return reply.send(response);
   });
 
   app.post('/api/settings/llm/test', async (request, reply) => {
-    if (!requireAuth(request, reply)) return;
-    const before = readResolvedLlmSettings();
-    const runtimeConfig = getLlmRuntimeConfig();
+    const session = requireAuthSession(request, reply);
+    if (!session || !requireCsrf(request, reply, session)) return;
+    const env = userScopedEnv(session.user.id);
+    const before = readResolvedLlmSettings(env);
+    const runtimeConfig = getLlmRuntimeConfig(env);
     if (!runtimeConfig) {
       const message = llmTestUnavailableMessage(before);
       return reply.code(409).send({
         error: message,
-        status: buildSettingsStatus(),
+        status: buildSettingsStatus(env),
         provider: before.provider,
         ok: false,
         message
@@ -254,10 +279,10 @@ export function registerCopilotRoutes(app: FastifyInstance): void {
         message: result.message,
         validatedAt: result.ok ? new Date().toISOString() : undefined,
         error: result.ok ? undefined : result.message
-      });
+      }, env);
     }
     return reply.send({
-      status: buildSettingsStatus(),
+      status: buildSettingsStatus(env),
       provider: before.provider,
       ok: result.ok,
       message: result.message
