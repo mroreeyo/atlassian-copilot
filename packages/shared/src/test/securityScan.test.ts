@@ -55,14 +55,36 @@ describe('frontend security scan', () => {
         "localStorage.setItem('auth_token', token);",
         "localStorage.setItem('apiKey', apiKey);",
         "sessionStorage.setItem('csrfToken', csrf);",
+        "document.cookie = `csrfToken=${csrf}`;",
+        "indexedDB.open('oauthState');",
+        "caches.open('csrf-cache');",
+        "cache.put('/callback?oauthState=' + state, response);",
+        "queryClient.setQueryData(['csrfToken'], csrf);",
         "window.history.pushState(null, '', '?sessionToken=' + token);",
         "window.history.pushState(null, '', '?apiKey=' + apiKey);",
         "window.history.pushState(null, '', '?accessToken=' + token);",
         "const params = new URLSearchParams({ oauthToken: token });",
         "params.set('jwt', token);",
-        "params.set('apiKey', apiKey);"
+        "params.set('apiKey', apiKey);",
+        "console.info('csrfToken', csrf);",
+        "logger.warn('oauthToken', token);"
       ].join('\n')
     );
+
+    expect(() => execFileSync(process.execPath, [scriptPath, root], { cwd: repoRoot, stdio: 'pipe' })).toThrow();
+  });
+
+  it.each([
+    ['cookie persistence', "document.cookie = `csrfToken=${csrf}`;"],
+    ['IndexedDB persistence', "indexedDB.open('oauthState');"],
+    ['Cache API namespace', "caches.open('csrf-cache');"],
+    ['Cache API entry', "cache.put('/callback?oauthState=' + state, response);"],
+    ['query cache entry', "queryClient.setQueryData(['csrfToken'], csrf);"],
+    ['console logging', "console.info('csrfToken', csrf);"],
+    ['logger logging', "logger.warn('oauthToken', token);"]
+  ])('fails on %s for CSRF/OAuth-like values', (_, source) => {
+    const root = fixtureRoot();
+    writeFileSync(join(root, 'src/client.ts'), source);
 
     expect(() => execFileSync(process.execPath, [scriptPath, root], { cwd: repoRoot, stdio: 'pipe' })).toThrow();
   });
