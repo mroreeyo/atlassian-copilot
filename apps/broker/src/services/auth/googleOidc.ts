@@ -60,7 +60,7 @@ class GoogleAuthLibraryOidcClient implements GoogleOidcClient {
     const payload = ticket.getPayload();
     if (!payload) throw new GoogleOidcError('missing_id_token_payload');
     const claims = payload as GoogleTokenClaims;
-    validateGoogleClaims(claims, { clientId: this.config.clientId, nonce: input.nonce, hostedDomain: this.config.hostedDomain });
+    validateGoogleClaims(claims, { clientId: this.config.clientId, hostedDomain: this.config.hostedDomain });
     return claims;
   }
   const issuer = String(claims.iss ?? '');
@@ -86,13 +86,13 @@ class GoogleAuthLibraryOidcClient implements GoogleOidcClient {
   return result;
 }
 
-export function validateGoogleClaims(claims: GoogleTokenClaims, expected: { clientId: string; nonce: string; hostedDomain?: string }): void {
+export function validateGoogleClaims(claims: GoogleTokenClaims, expected: { clientId: string; nonce?: string; hostedDomain?: string }): void {
   if (claims.iss !== 'https://accounts.google.com' && claims.iss !== 'accounts.google.com') throw new GoogleOidcError('invalid_issuer');
   const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
   if (!audiences.includes(expected.clientId)) throw new GoogleOidcError('invalid_audience');
   if (claims.azp && claims.azp !== expected.clientId) throw new GoogleOidcError('invalid_authorized_party');
   if (!claims.sub || claims.sub.length > 255) throw new GoogleOidcError('invalid_subject');
-  if (claims.nonce !== expected.nonce) throw new GoogleOidcError('invalid_nonce');
+  if (expected.nonce && claims.nonce !== expected.nonce) throw new GoogleOidcError('invalid_nonce');
   if (claims.email_verified !== true && claims.email_verified !== 'true') throw new GoogleOidcError('email_not_verified');
   if (!claims.email || !claims.email.includes('@')) throw new GoogleOidcError('invalid_email');
   if (expected.hostedDomain && claims.hd !== expected.hostedDomain) throw new GoogleOidcError('hosted_domain_denied');

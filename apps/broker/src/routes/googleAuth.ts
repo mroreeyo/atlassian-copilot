@@ -1,6 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { AuthSessionResponseSchema } from '@akc/shared';
 import { googleAuthConfig, googleAuthDisabledPayload, sanitizeGoogleReturnTo } from '../config/googleAuth.js';
 import { createOAuthTransaction, consumeOAuthTransaction } from '../services/auth/oauthTransactionStore.js';
 import { googleOidcClient, GoogleOidcError, validateGoogleClaims, type GoogleTokenClaims } from '../services/auth/googleOidc.js';
@@ -49,7 +48,7 @@ export function registerGoogleAuthRoutes(app: FastifyInstance): void {
       const client = googleOidcClient(config);
       const claims = await client.exchangeAndVerify({ code: request.query.code, pkceVerifier: transaction.pkceVerifier, nonce: transaction.nonceHash });
       validateNonceHash(claims, transaction.nonceHash);
-      validateGoogleClaims(claims, { clientId: config.clientId, nonce: claims.nonce, hostedDomain: config.hostedDomain });
+      validateGoogleClaims(claims, { clientId: config.clientId, hostedDomain: config.hostedDomain });
       const identityUser = upsertGoogleIdentityUser({
         providerSubject: claims.sub,
         email: claims.email,
@@ -68,12 +67,6 @@ export function registerGoogleAuthRoutes(app: FastifyInstance): void {
       const reason = error instanceof GoogleOidcError ? error.code : 'google_callback_failed';
       return redirectAuthFailure(reply, reason);
     }
-  });
-
-  app.get('/api/auth/google/test/session-response', async (_request, reply) => {
-    const config = googleAuthConfig();
-    if (process.env.NODE_ENV !== 'test' || !config.enabled) return reply.code(404).send({ error: 'not_found' });
-    return reply.send(AuthSessionResponseSchema.parse({ user: { email: 'google-test@example.com', createdAt: new Date(0).toISOString() } }));
   });
 }
 
