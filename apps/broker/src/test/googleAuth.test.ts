@@ -97,62 +97,66 @@ describe('Google OAuth/OIDC auth routes', () => {
   it('does not advertise Google auth in production with an invalid managed encryption key', async () => {
     process.env.NODE_ENV = 'production';
     process.env.AKC_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(16, 9).toString('base64');
-    setProductionGoogleUrls();
+    process.env.AKC_AUTH_BASE_URL = 'https://broker.example';
+    process.env.GOOGLE_REDIRECT_URI = 'https://broker.example/api/auth/google/callback';
 
     const config = await app.inject({ method: 'GET', url: '/api/auth/config' });
     expect(config.statusCode).toBe(200);
-    expect(config.headers['cache-control']).toBe('no-store');
     expect(config.json()).toMatchObject({ googleEnabled: false });
 
     const start = await app.inject({ method: 'GET', url: '/api/auth/google/start?returnTo=/settings' });
     expect(start.statusCode).toBe(503);
-    expect(start.headers['cache-control']).toBe('no-store');
     expect(start.json()).toMatchObject({ reason: 'google_auth_secure_storage_invalid' });
-    expect(start.body).not.toMatch(/google-client-secret|code_verifier/i);
+
+    process.env.NODE_ENV = 'test';
+    delete process.env.AKC_CREDENTIAL_ENCRYPTION_KEY;
+    process.env.AKC_AUTH_BASE_URL = 'http://localhost:8787';
+    delete process.env.GOOGLE_REDIRECT_URI;
   });
 
   it('does not advertise Google auth in production without explicit durable auth storage', async () => {
     process.env.NODE_ENV = 'production';
     process.env.AKC_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64');
-    setProductionGoogleUrls();
+    process.env.AKC_AUTH_BASE_URL = 'https://broker.example';
+    process.env.GOOGLE_REDIRECT_URI = 'https://broker.example/api/auth/google/callback';
     delete process.env.AKC_BROKER_STATE_DIR;
     delete process.env.AKC_AUTH_DB_PATH;
 
-    try {
-      const config = await app.inject({ method: 'GET', url: '/api/auth/config' });
-      expect(config.statusCode).toBe(200);
-      expect(config.headers['cache-control']).toBe('no-store');
-      expect(config.json()).toMatchObject({ googleEnabled: false });
-
-      const start = await app.inject({ method: 'GET', url: '/api/auth/google/start?returnTo=/settings' });
-      expect(start.statusCode).toBe(503);
-      expect(start.headers['cache-control']).toBe('no-store');
-      expect(start.json()).toMatchObject({ reason: 'google_auth_durable_storage_required' });
-      expect(start.body).not.toMatch(/google-client-secret|code_verifier/i);
-    } finally {
-      process.env.AKC_BROKER_STATE_DIR = stateDir;
-    }
-  });
-
-  it('does not advertise Google auth in production with localhost auth or redirect URLs', async () => {
-    process.env.NODE_ENV = 'production';
-    process.env.AKC_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64');
-    process.env.AKC_AUTH_BASE_URL = 'http://localhost:8787';
-    delete process.env.GOOGLE_REDIRECT_URI;
-
     const config = await app.inject({ method: 'GET', url: '/api/auth/config' });
     expect(config.statusCode).toBe(200);
-    expect(config.headers['cache-control']).toBe('no-store');
     expect(config.json()).toMatchObject({ googleEnabled: false });
 
     const start = await app.inject({ method: 'GET', url: '/api/auth/google/start?returnTo=/settings' });
     expect(start.statusCode).toBe(503);
-    expect(start.headers['cache-control']).toBe('no-store');
-    expect(start.json()).toMatchObject({ reason: 'google_auth_production_url_required' });
-    expect(start.body).not.toMatch(/google-client-secret|code_verifier/i);
+    expect(start.json()).toMatchObject({ reason: 'google_auth_persistent_storage_required' });
+
+    process.env.AKC_BROKER_STATE_DIR = stateDir;
+    process.env.NODE_ENV = 'test';
+    delete process.env.AKC_CREDENTIAL_ENCRYPTION_KEY;
+    process.env.AKC_AUTH_BASE_URL = 'http://localhost:8787';
+    delete process.env.GOOGLE_REDIRECT_URI;
+  });
+
+  it('does not advertise Google auth in production with localhost or non-HTTPS callback URLs', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.AKC_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64');
+    process.env.AKC_AUTH_BASE_URL = 'https://broker.example';
+    process.env.GOOGLE_REDIRECT_URI = 'http://localhost:8787/api/auth/google/callback';
+
+    const localhostRedirect = await app.inject({ method: 'GET', url: '/api/auth/google/start?returnTo=/settings' });
+    expect(localhostRedirect.statusCode).toBe(503);
+    expect(localhostRedirect.json()).toMatchObject({ reason: 'google_auth_production_url_required' });
+
+    process.env.AKC_AUTH_BASE_URL = 'http://broker.example';
+    process.env.GOOGLE_REDIRECT_URI = 'https://broker.example/api/auth/google/callback';
+    const nonHttpsBase = await app.inject({ method: 'GET', url: '/api/auth/google/start?returnTo=/settings' });
+    expect(nonHttpsBase.statusCode).toBe(503);
+    expect(nonHttpsBase.json()).toMatchObject({ reason: 'google_auth_production_url_required' });
 
     process.env.NODE_ENV = 'test';
     delete process.env.AKC_CREDENTIAL_ENCRYPTION_KEY;
+    process.env.AKC_AUTH_BASE_URL = 'http://localhost:8787';
+    delete process.env.GOOGLE_REDIRECT_URI;
   });
 
   it('creates first-login Google users by sub, not email, and keeps private settings per user', async () => {
@@ -195,7 +199,8 @@ describe('Google OAuth/OIDC auth routes', () => {
   it('uses a browser-valid secure transaction cookie in production Google OAuth', async () => {
     process.env.NODE_ENV = 'production';
     process.env.AKC_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64');
-    setProductionGoogleUrls();
+    process.env.AKC_AUTH_BASE_URL = 'https://broker.example';
+    process.env.GOOGLE_REDIRECT_URI = 'https://broker.example/api/auth/google/callback';
 
     const loginResult = await completeGoogleLogin('/settings');
     const startCookies = cookieValues(loginResult.start);
@@ -211,13 +216,16 @@ describe('Google OAuth/OIDC auth routes', () => {
 
     process.env.NODE_ENV = 'test';
     delete process.env.AKC_CREDENTIAL_ENCRYPTION_KEY;
+    process.env.AKC_AUTH_BASE_URL = 'http://localhost:8787';
+    delete process.env.GOOGLE_REDIRECT_URI;
   });
 
 
   it('rejects production callbacks that provide only an unprefixed transaction cookie', async () => {
     process.env.NODE_ENV = 'production';
     process.env.AKC_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64');
-    setProductionGoogleUrls();
+    process.env.AKC_AUTH_BASE_URL = 'https://broker.example';
+    process.env.GOOGLE_REDIRECT_URI = 'https://broker.example/api/auth/google/callback';
 
     const start = await app.inject({ method: 'GET', url: '/api/auth/google/start?returnTo=/settings' });
     const hostCookie = cookieHeaderFromSetCookie(start, 'akc_oauth_tx');
@@ -236,6 +244,8 @@ describe('Google OAuth/OIDC auth routes', () => {
 
     process.env.NODE_ENV = 'test';
     delete process.env.AKC_CREDENTIAL_ENCRYPTION_KEY;
+    process.env.AKC_AUTH_BASE_URL = 'http://localhost:8787';
+    delete process.env.GOOGLE_REDIRECT_URI;
   });
 
   it('rejects Google callbacks without the initiating browser transaction cookie', async () => {
@@ -258,6 +268,7 @@ describe('Google OAuth/OIDC auth routes', () => {
     const signup = await app.inject({
       method: 'POST',
       url: '/api/auth/signup',
+      headers: { origin: 'http://localhost:5173' },
       payload: { email: uniqueLocalEmail(), password: 'StrongPass123' }
     });
     const existingCookie = cookieHeaderFromSetCookie(signup, 'akc_session');

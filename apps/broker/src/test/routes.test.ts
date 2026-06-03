@@ -48,7 +48,8 @@ const originalEnv = {
   GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
   GOOGLE_ALLOWED_HOSTED_DOMAIN: process.env.GOOGLE_ALLOWED_HOSTED_DOMAIN,
   AKC_AUTH_BASE_URL: process.env.AKC_AUTH_BASE_URL,
-  AKC_AUTH_CSRF_SECRET: process.env.AKC_AUTH_CSRF_SECRET
+  AKC_AUTH_CSRF_SECRET: process.env.AKC_AUTH_CSRF_SECRET,
+  AKC_ALLOW_SOURCELESS_MUTATIONS: process.env.AKC_ALLOW_SOURCELESS_MUTATIONS
 };
 
 beforeAll(async () => {
@@ -71,6 +72,7 @@ beforeAll(async () => {
   delete process.env.ATLASSIAN_SITE_HOST_ALLOWLIST;
   delete process.env.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST;
   delete process.env.AKC_ENABLE_LOCAL_AUTH;
+  process.env.AKC_ALLOW_SOURCELESS_MUTATIONS = 'true';
   app = buildApp();
   const signup = await app.inject({
     method: 'POST',
@@ -118,6 +120,7 @@ afterEach(() => {
   restoreEnv('GOOGLE_ALLOWED_HOSTED_DOMAIN', originalEnv.GOOGLE_ALLOWED_HOSTED_DOMAIN);
   restoreEnv('AKC_AUTH_BASE_URL', originalEnv.AKC_AUTH_BASE_URL);
   restoreEnv('AKC_AUTH_CSRF_SECRET', originalEnv.AKC_AUTH_CSRF_SECRET);
+  process.env.AKC_ALLOW_SOURCELESS_MUTATIONS = 'true';
   setGoogleOidcClientForTests(null);
   vi.restoreAllMocks();
 });
@@ -152,6 +155,7 @@ afterAll(async () => {
   restoreEnv('GOOGLE_ALLOWED_HOSTED_DOMAIN', originalEnv.GOOGLE_ALLOWED_HOSTED_DOMAIN);
   restoreEnv('AKC_AUTH_BASE_URL', originalEnv.AKC_AUTH_BASE_URL);
   restoreEnv('AKC_AUTH_CSRF_SECRET', originalEnv.AKC_AUTH_CSRF_SECRET);
+  restoreEnv('AKC_ALLOW_SOURCELESS_MUTATIONS', originalEnv.AKC_ALLOW_SOURCELESS_MUTATIONS);
   rmSync(stateDir, { recursive: true, force: true });
 }, routeHookTimeoutMs);
 
@@ -305,6 +309,22 @@ describe('broker routes', () => {
     expect(afterLogout.statusCode).toBe(401);
   }, 30_000);
 
+  it('marks auth JSON responses as no-store', async () => {
+    const email = uniqueAuthEmail('no-store');
+    const config = await app.inject({ method: 'GET', url: '/api/auth/config' });
+    const signup = await app.inject({ method: 'POST', url: '/api/auth/signup', payload: { email, password: 'StrongPass123' } });
+    const signupCookie = cookieHeaderFromSetCookie(signup, 'akc_session');
+    const signupCsrf = signup.json<{ csrfToken: string }>().csrfToken;
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'StrongPass123' } });
+    const loginCookie = cookieHeaderFromSetCookie(login, 'akc_session');
+    const session = await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie: loginCookie } });
+    const logout = await app.inject({ method: 'POST', url: '/api/auth/logout', headers: { cookie: signupCookie, 'x-csrf-token': signupCsrf } });
+
+    for (const response of [config, signup, login, session, logout]) {
+      expect(response.headers['cache-control']).toBe('no-store');
+    }
+  }, 30_000);
+
   it('keeps an existing session active when a local login attempt fails', async () => {
     const session = await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie: authCookie } });
     expect(session.statusCode).toBe(200);
@@ -337,6 +357,7 @@ describe('broker routes', () => {
     const disabledSignup = await app.inject({
       method: 'POST',
       url: '/api/auth/signup',
+      headers: { origin: 'http://localhost:5173' },
       payload: { email: uniqueAuthEmail('prod-local-off'), password: 'StrongPass123' }
     });
     expect(disabledSignup.statusCode).toBe(403);
@@ -344,6 +365,7 @@ describe('broker routes', () => {
     const disabledLogin = await app.inject({
       method: 'POST',
       url: '/api/auth/login',
+      headers: { origin: 'http://localhost:5173' },
       payload: { email, password: 'StrongPass123' }
     });
     expect(disabledLogin.statusCode).toBe(403);
@@ -352,6 +374,7 @@ describe('broker routes', () => {
     const enabledSignup = await app.inject({
       method: 'POST',
       url: '/api/auth/signup',
+      headers: { origin: 'http://localhost:5173' },
       payload: { email: uniqueAuthEmail('prod-local-on'), password: 'StrongPass123' }
     });
     expect(enabledSignup.statusCode).toBe(201);
@@ -367,7 +390,7 @@ describe('broker routes', () => {
     process.env.NODE_ENV = 'production';
     process.env.AKC_ENABLE_LOCAL_AUTH = 'true';
     process.env.AKC_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 8).toString('base64');
-    const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'StrongPass123' } });
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login', headers: { origin: 'http://localhost:5173' }, payload: { email, password: 'StrongPass123' } });
     expect(login.statusCode).toBe(200);
     const hostCookie = cookieHeaderFromSetCookie(login, 'akc_session');
     expect(hostCookie).toMatch(/^__Host-akc_session=/);
@@ -442,23 +465,29 @@ describe('broker routes', () => {
     expect(response.json()).toMatchObject({ streamUrl: expect.stringContaining('/api/copilot/runs/') });
   }, 30_000);
 
-  it('requires CSRF for authenticated Copilot run creation while preserving unauthenticated demo runs', async () => {
-    const missingCsrf = await app.inject({
+  it('requires CSRF for authenticated copilot run creation while preserving unauthenticated demo runs', async () => {
+    const authenticatedMissingCsrf = await app.inject({
       method: 'POST',
       url: '/api/copilot/runs',
       headers: { cookie: authCookie, origin: 'http://localhost:5173' },
       payload: { message: 'hello', mode: 'readonly' }
     });
-    const publicDemo = await app.inject({
+    const authenticatedWithCsrf = await app.inject({
+      method: 'POST',
+      url: '/api/copilot/runs',
+      headers: { cookie: authCookie, origin: 'http://localhost:5173', 'x-csrf-token': authCsrfToken },
+      payload: { message: 'hello', mode: 'readonly' }
+    });
+    const unauthenticatedDemo = await app.inject({
       method: 'POST',
       url: '/api/copilot/runs',
       headers: { origin: 'http://localhost:5173' },
       payload: { message: 'hello', mode: 'sandbox-write' }
     });
 
-    expect(missingCsrf.statusCode).toBe(403);
-    expect(publicDemo.statusCode).toBe(200);
-    expect(publicDemo.json()).toMatchObject({ streamUrl: expect.stringContaining('/api/copilot/runs/') });
+    expect(authenticatedMissingCsrf.statusCode).toBe(403);
+    expect(authenticatedWithCsrf.statusCode).toBe(200);
+    expect(unauthenticatedDemo.statusCode).toBe(200);
   }, 30_000);
 
   it('streams canonical SSE events from the server endpoint', async () => {
@@ -806,6 +835,37 @@ describe('broker routes', () => {
     expect(status.json().llm).toMatchObject({ provider: 'mock', configured: false, keyConfigured: false });
   }, 30_000);
 
+  it('rejects sourceless unsafe mutations by default and allows only the non-production escape hatch', async () => {
+    const secret = 'sk-sourceless-secret';
+    delete process.env.AKC_ALLOW_SOURCELESS_MUTATIONS;
+    const blocked = await authInject({
+      method: 'POST',
+      url: '/api/settings/llm',
+      payload: { provider: 'openai', apiKey: secret, model: 'gpt-4.1-mini', enabled: true }
+    });
+
+    process.env.AKC_ALLOW_SOURCELESS_MUTATIONS = 'true';
+    const allowed = await authInject({
+      method: 'POST',
+      url: '/api/settings/llm',
+      payload: { provider: 'openai', apiKey: secret, model: 'gpt-4.1-mini', enabled: true }
+    });
+
+    process.env.NODE_ENV = 'production';
+    const productionBlocked = await authInject({
+      method: 'POST',
+      url: '/api/settings/llm',
+      payload: { provider: 'openai', apiKey: secret, model: 'gpt-4.1-mini', enabled: true }
+    });
+
+    expect(blocked.statusCode).toBe(403);
+    expect(blocked.body).not.toContain(secret);
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.body).not.toContain(secret);
+    expect(productionBlocked.statusCode).toBe(403);
+    expect(productionBlocked.body).not.toContain(secret);
+  }, 30_000);
+
   it('allows unsafe browser mutations from configured trusted origins', async () => {
     const secret = 'sk-trusted-origin-secret';
     const response = await authInject({
@@ -1099,7 +1159,7 @@ describe('broker routes', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/settings/llm',
-      headers: { cookie: hostAuthCookie, 'x-csrf-token': csrf },
+      headers: { cookie: hostAuthCookie, 'x-csrf-token': csrf, origin: 'http://localhost:5173' },
       payload: { provider: 'openai', apiKey: secret, model: 'gpt-4.1-mini', enabled: true }
     });
 

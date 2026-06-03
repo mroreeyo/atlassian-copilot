@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMockRunEvents, mockHistory, mockSettingsStatus } from '@akc/shared/mock';
-import { clearMemoryCsrfToken, setMemoryCsrfToken } from '../services/auth/csrfToken';
 import { approveAction, cancelAction, clearAtlassianSettings, clearLlmSettings, createCopilotRun, decodeSseFrames, getCopilotSuggestions, getHistory, getLlmProviderModels, getSettingsStatus, saveAtlassianSettings, saveLlmSettings, streamCopilotEvents, testAtlassianSettings, testLlmSettings } from '../services/copilot/brokerCopilotClient';
+import { clearMemoryCsrfToken, setMemoryCsrfToken } from '../services/auth/csrfToken';
 
 function toSse(events: unknown[]): string {
   return events.map((event) => `event: ${(event as { type: string }).type}\ndata: ${JSON.stringify(event)}\n\n`).join('');
@@ -42,10 +42,12 @@ describe('Broker Copilot client', () => {
   });
 
   it('creates a run and streams events over the Broker HTTP/SSE boundary', async () => {
+    setMemoryCsrfToken('csrf-run-create');
     const streamBody = toSse(createMockRunEvents('run_http'));
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.endsWith('/api/copilot/runs') && init?.method === 'POST') {
+        expect(init.headers).toMatchObject({ 'X-CSRF-Token': 'csrf-run-create' });
         return new Response(JSON.stringify({ runId: 'run_http', streamUrl: '/api/copilot/runs/run_http/stream' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' }

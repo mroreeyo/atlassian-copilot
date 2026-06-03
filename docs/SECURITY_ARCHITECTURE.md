@@ -66,18 +66,18 @@ Broker env additions:
 AKC_AUTH_BASE_URL=http://localhost:8787
 AKC_WEB_BASE_URL=http://localhost:5173
 AKC_ENABLE_GOOGLE_AUTH=false
-AKC_ENABLE_LOCAL_AUTH=true # required explicit opt-in for production local email/password auth
+# Production default is fail-closed; set true only if local email/password auth is intended.
+AKC_ENABLE_LOCAL_AUTH=true
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=http://localhost:8787/api/auth/google/callback
 GOOGLE_ALLOWED_HOSTED_DOMAIN=
 AKC_AUTH_CSRF_SECRET=
 AKC_CREDENTIAL_ENCRYPTION_KEY=
-AKC_BROKER_STATE_DIR=
 AKC_AUTH_DB_PATH=.akc-state/auth.sqlite
 ```
 
-In production, Google auth is disabled unless the Broker uses non-localhost HTTPS auth and redirect URLs plus explicit persistent state (`AKC_BROKER_STATE_DIR` or `AKC_AUTH_DB_PATH`) and a managed 32-byte base64 `AKC_CREDENTIAL_ENCRYPTION_KEY`. Frontend may use non-secret UI flags such as `VITE_BROKER_BASE_URL` and `VITE_AKC_ENABLE_LOCAL_AUTH`, but must not define any `VITE_GOOGLE_*` secret/token, `VITE_AKC_AUTH_CSRF_SECRET`, or credential encryption key.
+Frontend may use non-secret UI flags such as `VITE_BROKER_BASE_URL` and `VITE_AKC_ENABLE_LOCAL_AUTH`, but must not define any `VITE_GOOGLE_*` secret/token, `VITE_AKC_AUTH_CSRF_SECRET`, or `VITE_AKC_CREDENTIAL_ENCRYPTION_KEY`.
 
 ## 3. Tool Risk Levels
 
