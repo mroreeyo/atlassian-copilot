@@ -7,6 +7,10 @@ import { completeGoogleOidcCallback, GoogleAuthConfigError, googleAuthConfigured
 import { sanitizeGoogleReturnTo } from '../config/googleAuth.js';
 
 export function registerAuthRoutes(app: FastifyInstance): void {
+  app.addHook('onRequest', async (request, reply) => {
+    if (request.url.startsWith('/api/auth/')) reply.header('Cache-Control', 'no-store');
+  });
+
   app.get('/api/auth/config', async (_request, reply) => {
     setNoStore(reply);
     return reply.send({ googleEnabled: googleAuthConfigured(), localAuthEnabled: isLocalAuthEnabled() });
@@ -145,7 +149,7 @@ function safeGoogleCallbackError(error: unknown): string {
   return 'google_callback_failed';
 }
 
-function authRateLimitKey(ip: string): string {
+function authRateLimitKey(ip: string, _forwarded: string | string[] | undefined): string {
   return (ip || 'unknown').slice(0, 128);
 }
 
