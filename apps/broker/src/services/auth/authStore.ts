@@ -31,6 +31,7 @@ export function normalizeAuthEmail(email: string): string {
 }
 
 export function isLocalAuthEnabled(env = process.env): boolean {
+  if (env.NODE_ENV === 'production') return env.AKC_ENABLE_LOCAL_AUTH === 'true';
   return env.AKC_ENABLE_LOCAL_AUTH !== 'false';
 }
 
