@@ -57,7 +57,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     try {
       const query = request.query as { returnTo?: string };
       const result = startGoogleOidc(safeReturnTo(query.returnTo));
-      return reply.redirect(302, result.url);
+      return reply.redirect(result.url, 302);
     } catch (error) {
       const status = error instanceof GoogleAuthConfigError ? (googleAuthEnabledFlag() ? 503 : 404) : 400;
       return reply.code(status).send({ error: error instanceof Error ? error.message : 'Google 로그인을 시작할 수 없습니다.' });
@@ -66,16 +66,16 @@ export function registerAuthRoutes(app: FastifyInstance): void {
 
   app.get('/api/auth/google/callback', async (request, reply) => {
     const query = request.query as { code?: string; state?: string; error?: string };
-    if (query.error) return reply.redirect(302, `/login?authError=${encodeURIComponent('google_denied')}`);
+    if (query.error) return reply.redirect(`/login?authError=${encodeURIComponent('google_denied')}`, 302);
     try {
       rotateRequestSession(request);
       const result = await completeGoogleOidcCallback({ code: query.code, state: query.state });
-      if (!result) return reply.redirect(302, `/login?authError=${encodeURIComponent('google_callback_failed')}`);
+      if (!result) return reply.redirect(`/login?authError=${encodeURIComponent('google_callback_failed')}`, 302);
       setSessionCookie(reply, request, result.session.sessionId);
-      return reply.redirect(302, result.returnTo);
+      return reply.redirect(result.returnTo, 302);
     } catch (error) {
       const reason = error instanceof GoogleAuthConfigError ? 'google_not_configured' : 'google_callback_failed';
-      return reply.redirect(302, `/login?authError=${encodeURIComponent(reason)}`);
+      return reply.redirect(`/login?authError=${encodeURIComponent(reason)}`, 302);
     }
   });
 }

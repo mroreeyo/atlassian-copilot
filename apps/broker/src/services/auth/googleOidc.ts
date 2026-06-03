@@ -63,6 +63,27 @@ class GoogleAuthLibraryOidcClient implements GoogleOidcClient {
     validateGoogleClaims(claims, { clientId: this.config.clientId, nonce: input.nonce, hostedDomain: this.config.hostedDomain });
     return claims;
   }
+  const issuer = String(claims.iss ?? '');
+  const audience = Array.isArray(claims.aud) ? claims.aud.map(String) : [String(claims.aud ?? '')];
+  const exp = Number(claims.exp);
+  const sub = typeof claims.sub === 'string' ? claims.sub : '';
+  const email = typeof claims.email === 'string' ? claims.email.trim().toLowerCase() : '';
+  const nonce = typeof claims.nonce === 'string' ? claims.nonce : '';
+  const emailVerified = claims.email_verified === true || claims.email_verified === 'true';
+  const allowedHd = env.GOOGLE_ALLOWED_HOSTED_DOMAIN?.trim();
+  const hd = typeof claims.hd === 'string' ? claims.hd : undefined;
+  if (issuer !== 'https://accounts.google.com' && issuer !== 'accounts.google.com') return null;
+  if (!audience.includes(env.GOOGLE_CLIENT_ID!.trim())) return null;
+  if (typeof claims.azp === 'string' && claims.azp && claims.azp !== env.GOOGLE_CLIENT_ID!.trim()) return null;
+  if (!Number.isFinite(exp) || exp * 1000 <= Date.now() - 300_000) return null;
+  if (!sub || !email || !emailVerified) return null;
+  if (hashOpaque(nonce) !== nonceHash) return null;
+  if (allowedHd && hd !== allowedHd) return null;
+  const result: { sub: string; email: string; emailVerified: boolean; name?: string; picture?: string; hd?: string; raw: GoogleClaims } = { sub, email, emailVerified, raw: claims };
+  if (typeof claims.name === 'string') result.name = claims.name;
+  if (typeof claims.picture === 'string') result.picture = claims.picture;
+  if (hd) result.hd = hd;
+  return result;
 }
 
 export function validateGoogleClaims(claims: GoogleTokenClaims, expected: { clientId: string; nonce: string; hostedDomain?: string }): void {
