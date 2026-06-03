@@ -30,11 +30,13 @@ export interface StoredRun {
   actionReviews: Record<string, ActionReviewRequest>;
   actionResolutions: Record<string, StoredActionResolution>;
   createdAt: string;
+  userId?: string | null | undefined;
 }
+
 
 const runs = new Map<string, StoredRun>();
 
-export function storeRun(run: { runId: string; message: string; mode: RunMode }): StoredRun {
+export function storeRun(run: { runId: string; message: string; mode: RunMode; userId?: string | null | undefined }): StoredRun {
   const scenario = detectRunScenario(run.message);
   const plan = run.mode === 'mock' ? buildDemoActionPlan() : buildActionPlan(scenario, run.message);
   const actionIdMap = Object.fromEntries(plan.actions.map((action) => [action.id, `${run.runId}_${action.id}`]));
@@ -83,12 +85,16 @@ function buildDemoActionPlan(): { actions: ToolActionPlan[]; actionQueries: Reco
   };
 }
 
-export function getStoredRun(runId: string): StoredRun | undefined {
-  return runs.get(runId);
+export function getStoredRun(runId: string, userId?: string | null): StoredRun | undefined {
+  const run = runs.get(runId);
+  if (!run) return undefined;
+  if (run.userId && run.userId !== userId) return undefined;
+  return run;
 }
 
-export function findActionReview(actionId: string): { run: StoredRun; action: ActionReviewRequest; resolution: StoredActionResolution } | undefined {
+export function findActionReview(actionId: string, userId?: string | null): { run: StoredRun; action: ActionReviewRequest; resolution: StoredActionResolution } | undefined {
   for (const run of runs.values()) {
+    if (run.userId && run.userId !== userId) continue;
     const action = run.actionReviews[actionId];
     if (action) return { run, action, resolution: run.actionResolutions[actionId] ?? { status: 'pending' } };
   }
