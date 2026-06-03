@@ -3,7 +3,7 @@
 - 작성일: 2026-06-03
 - 프로젝트: AX Knowledge Copilot
 - 범위: Google OAuth/OIDC 로그인, 최초 Google 로그인 시 로컬 사용자 생성/갱신, 세션/DB/CSRF/사용자 데이터 격리, UI 노출, 테스트/배포 계획
-- 상태: **계획 확정 전 최종 산출물**. 현재 앱에는 Google 로그인 UI/API가 아직 없고, 로컬 이메일/비밀번호 로그인만 있다.
+- 상태: **보강 완료된 구현 전 최종 계획**. 현재 앱에는 Google 로그인 UI/API가 아직 없고, 로컬 이메일/비밀번호 로그인만 있다.
 - 선행 변경 완료: 로컬 비밀번호 기준은 서버/UI 모두 **8자 이상**으로 정렬됨.
 
 ## 1. 현재 레포 상태
@@ -72,6 +72,13 @@
 - 최종 권장: `better-sqlite3`를 pin하고 lockfile에 고정하되, 모든 DB 접근은 repository adapter 뒤로 감싼다.
 - Postgres 전환 가능성을 위해 SQL/adapter 경계를 분리한다.
 - production multi-instance로 갈 경우 SQLite 단일 파일은 부적합할 수 있으므로 Postgres 전환을 별도 phase로 둔다.
+- SQLite 운영 하드닝은 구현 acceptance criteria다.
+  - startup에서 `PRAGMA foreign_keys = ON`을 강제한다.
+  - WAL mode와 `busy_timeout`을 명시한다.
+  - migration version table을 둔다.
+  - DB 파일/상태 디렉터리는 가능한 한 `0600`/owner-only 권한으로 만든다.
+  - `sessions.expires_at`, `sessions.idle_expires_at`, `oauth_transactions.expires_at`, `user_id`/`run_id`/`action_id` 조회 index를 둔다.
+  - expired sessions/oauth transactions cleanup job을 구현한다.
 
 ## 3. 구현 아키텍처
 
@@ -92,10 +99,12 @@
 1. `GET /api/auth/google/start?returnTo=/settings`
    - `returnTo` allowlist 검증.
    - state, nonce, PKCE verifier/challenge 생성.
-   - state/nonce/verifier hash를 DB에 저장.
+   - state/nonce hash를 DB에 저장.
+   - **PKCE verifier는 code exchange에 원문이 필요하므로 hash-only 저장 금지**. 서버 DB에 AEAD 암호문 + hash를 저장하거나, 짧은 TTL의 HttpOnly OAuth verifier cookie에 원문을 보관하고 DB hash로 대조한다.
    - Google Authorization URL로 redirect.
 2. `GET /api/auth/google/callback`
    - state 조회/검증/atomic consume.
+   - encrypted PKCE verifier 복호화 또는 HttpOnly verifier cookie 회수 후 hash 대조.
    - code exchange.
    - ID token 검증.
    - Google `sub` 기준 upsert.
@@ -104,11 +113,20 @@
    - clean app path로 redirect.
 3. `GET /api/auth/me` 또는 기존 `GET /api/auth/session` 확장
    - 사용자 정보와 CSRF token 반환.
+   - CSRF token은 세션에 바인딩된 non-persistent token이며 프론트는 메모리에만 보관한다. localStorage/sessionStorage/IndexedDB/URL/log/persistent React Query cache에 저장하지 않는다.
    - 세션 ID / Google token / OAuth state / nonce는 반환 금지.
 4. `POST /api/auth/logout`
    - CSRF 필요.
    - DB session revoke.
    - 쿠키 삭제.
+
+#### `returnTo` allowlist
+
+- 허용 path는 기본적으로 `/copilot`, `/history`, `/settings`만 둔다.
+- path-only 값만 허용한다.
+- absolute URL, protocol-relative URL, encoded absolute URL, backslash, control character, 외부 origin은 모두 거부한다.
+- search/hash는 필요한 경우에만 보존하고, 허용 route별로 제한한다.
+- 검증 실패 시 기본값은 `/settings` 또는 `/copilot` 중 명시된 safe default로 redirect한다.
 
 ### 3.2 환경 변수
 
@@ -123,6 +141,7 @@ GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=http://localhost:8787/api/auth/google/callback
 GOOGLE_ALLOWED_HOSTED_DOMAIN=
+AKC_AUTH_SECRET_KEY=
 AKC_AUTH_SESSION_TTL_HOURS=168
 AKC_AUTH_SESSION_IDLE_TTL_MINUTES=60
 AKC_AUTH_OAUTH_TRANSACTION_TTL_MINUTES=10
@@ -132,8 +151,11 @@ AKC_AUTH_DB_PATH=.akc-state/auth.sqlite
 운영 원칙:
 
 - Google secret은 Broker env/secret manager에만 존재.
+- `AKC_AUTH_SECRET_KEY`는 PKCE verifier 암호화/HMAC/CSRF 토큰 서명에 쓰는 32바이트 이상 secret으로, production에서는 필수다.
 - `VITE_GOOGLE_CLIENT_SECRET`, `VITE_GOOGLE_TOKEN`, `VITE_ATLASSIAN_TOKEN` 같은 프론트 secret env는 만들지 않는다.
+- `GOOGLE_REDIRECT_URI`와 `AKC_AUTH_BASE_URL`은 startup에서 consistency check한다. 권장 source of truth는 `AKC_AUTH_BASE_URL`에서 callback URI를 derive하는 방식이다.
 - local dev는 고정 Broker port를 우선 사용한다. 동적 port를 쓰면 Google redirect URI mismatch가 발생한다.
+- `GOOGLE_ALLOWED_HOSTED_DOMAIN`이 설정되면 Google `hd` claim exact match를 요구한다. unset이면 verified Google account 전체를 허용하되 `email_verified=true`는 기본 필수다.
 
 ### 3.3 Google Cloud Console 설정 매트릭스
 
@@ -186,7 +208,9 @@ user_identities(
 oauth_transactions(
   state_hash text primary key,
   nonce_hash text not null,
+  pkce_verifier_ciphertext text not null,
   pkce_verifier_hash text not null,
+  pkce_verifier_key_id text,
   return_to text not null,
   created_at text not null,
   expires_at text not null,
@@ -196,9 +220,10 @@ oauth_transactions(
 
 정책:
 
-- state/nonce/PKCE verifier 원문은 저장하지 않는다.
+- state/nonce 원문은 저장하지 않는다.
+- PKCE verifier는 Google code exchange에 필요하므로 hash-only 저장 금지. 서버 저장 방식은 AEAD 암호문 + hash 검증을 기본으로 한다. 대안으로 짧은 TTL의 HttpOnly/SameSite OAuth verifier cookie를 사용하되 DB hash와 반드시 대조한다.
 - TTL 기본 10분.
-- callback에서 atomic consume.
+- callback에서 state/nonce/verifier 검증 후 atomic consume한다. code exchange 실패 후 재시도를 허용하지 않는 것이 기본이다.
 - missing/invalid/expired/replayed/mismatched transaction은 전부 실패.
 
 ### 4.3 session / CSRF
@@ -224,6 +249,8 @@ sessions(
 - DB에는 session token hash만 저장한다.
 - OAuth callback 성공 시 기존 세션은 폐기하고 새 세션을 발급한다.
 - absolute TTL + idle TTL 모두 적용한다.
+- CSRF token은 server session에 바인딩한다. 서버에는 token hash/HMAC만 저장하고, 프론트는 요청 직전 메모리에서만 `X-CSRF-Token`으로 보낸다.
+- CSRF token은 URL, localStorage, sessionStorage, IndexedDB, analytics/log, persistent React Query cache에 저장하지 않는다.
 - production cookie:
   - 가능하면 `__Host-akc_session`
   - `HttpOnly`
@@ -256,8 +283,9 @@ sessions(
 
 1. OAuth transaction
    - high entropy state + nonce + PKCE S256.
-   - 서버 저장, hash at rest, TTL, one-time consume.
-   - state/nonce/PKCE mismatch/replay/expiry 테스트.
+   - state/nonce는 hash at rest, TTL, one-time consume.
+   - PKCE verifier는 hash-only 저장 금지. AEAD 암호문 + hash 검증 또는 HttpOnly transient verifier cookie + DB hash 대조 중 하나를 구현한다.
+   - state/nonce/PKCE mismatch/replay/expiry/decrypt-failure 테스트.
 2. ID token verification
    - signature/JWKS.
    - issuer: `https://accounts.google.com` 또는 `accounts.google.com`.
@@ -274,6 +302,7 @@ sessions(
 4. CSRF
    - 모든 cookie-backed mutation에 `X-CSRF-Token` 필요.
    - logout/settings/LLM test/action approve/cancel/write action 포함.
+   - CSRF token은 세션 바인딩 + 메모리-only 프론트 보관 정책을 따른다. persistent storage/URL/log/cache 저장 금지.
    - Origin/Referer 검증은 방어층으로 유지.
 5. User isolation
    - settings/runs/streams/actions/audit/history 모두 `user_id`로 격리.
@@ -291,7 +320,11 @@ sessions(
    - prepared statements/bound parameters만 사용.
    - dynamic table/column/order/provider는 allowlist.
 10. Browser leakage
-   - auth/session/CSRF/OAuth/Google/Atlassian/LLM/bearer material을 localStorage/sessionStorage/IndexedDB/query/hash/SSE URL/log/React Query cache에 저장 금지.
+   - auth/session/CSRF/OAuth/Google/Atlassian/LLM/bearer material을 localStorage/sessionStorage/IndexedDB/query/hash/SSE URL/log/persistent React Query cache에 저장 금지.
+   - callback 후 브라우저 URL에는 `code`, `state`, `id_token`, `access_token`, `csrf`가 남지 않아야 한다.
+11. Feature enable gate
+   - `AKC_ENABLE_GOOGLE_AUTH=true`는 user-scoped private stores와 CSRF가 완료되고 해당 tests가 통과한 뒤에만 허용한다.
+   - 그 전까지 Google routes가 구현되어 있어도 feature flag off 상태로 유지한다.
 
 ## 6. 배포/UX/회귀 acceptance criteria — 2차 강검토 반영
 
@@ -371,31 +404,37 @@ npm run security:scan
 ### Phase 1 — DB adapter + migration
 
 1. SQLite open/migration module 추가.
-2. `users`, `user_identities`, `sessions`, `oauth_transactions` 생성.
-3. local auth도 가능하면 새 user/session store로 이동.
-4. 기존 `auth-users.json`는 dev migration만 제공하거나 quarantine.
+2. `PRAGMA foreign_keys = ON`, WAL/busy_timeout, migration version table, DB file permission, cleanup job 추가.
+3. `users`, `user_identities`, `sessions`, `oauth_transactions` 생성.
+4. local auth도 가능하면 새 user/session store로 이동.
+5. 기존 `auth-users.json`는 dev migration만 제공하거나 quarantine.
 
 ### Phase 2 — session + CSRF
 
 1. DB-backed session 구현.
 2. cookie helper를 `@fastify/cookie` 기반으로 정리.
 3. `/api/auth/session` 또는 `/api/auth/me`에서 CSRF token 제공.
-4. private mutations에 CSRF guard 적용.
+4. CSRF token은 메모리-only 프론트 보관으로 제한하고 persistent cache/storage/URL/log 저장을 금지한다.
+5. private mutations에 CSRF guard 적용.
+6. local auth feature flag와 DB-backed local session을 함께 적용한다.
 
-### Phase 3 — Google OAuth/OIDC routes
-
-1. `/api/auth/google/start` 구현.
-2. `/api/auth/google/callback` 구현.
-3. `google-auth-library`로 code exchange/ID token verification.
-4. `sub` 기반 upsert.
-5. safe redirect.
-
-### Phase 4 — user-scoped private stores
+### Phase 3 — user-scoped private stores
 
 1. settings store user_id 적용.
 2. runs/action/audit store user_id 적용.
 3. public mock run과 private run 분리.
 4. legacy singleton quarantine.
+5. 이 phase가 완료되기 전 `AKC_ENABLE_GOOGLE_AUTH=true` 금지.
+
+### Phase 4 — Google OAuth/OIDC routes
+
+1. `/api/auth/google/start` 구현.
+2. `/api/auth/google/callback` 구현.
+3. encrypted PKCE verifier 또는 HttpOnly transient verifier cookie 방식 구현.
+4. `google-auth-library`로 code exchange/ID token verification.
+5. `sub` 기반 upsert.
+6. hosted-domain/email_verified 정책 적용.
+7. safe redirect.
 
 ### Phase 5 — frontend UI
 
@@ -420,11 +459,15 @@ npm run security:scan
 - returnTo absolute/protocol-relative/encoded absolute/control char/backslash rejected.
 - callback rejects invalid/missing/replayed/expired state.
 - callback rejects invalid nonce.
+- callback rejects missing/decrypt-failed/mismatched PKCE verifier.
 - callback rejects wrong issuer/audience/azp/expired token.
+- callback rejects `email_verified=false` unless an explicit policy allows it.
+- callback enforces `GOOGLE_ALLOWED_HOSTED_DOMAIN` via `hd` claim when configured.
 - callback upserts by `sub`, not email.
 - callback rotates session.
 - logout requires CSRF and revokes session.
 - local 8-character password `Pass1234` accepted if local auth enabled.
+- local auth disabled mode hides UI and rejects `/api/auth/signup`/`/api/auth/login` by policy.
 
 ### Data isolation tests
 
@@ -446,6 +489,8 @@ npm run security:scan
 
 - no `VITE_GOOGLE_CLIENT_SECRET` / token leakage strings.
 - no Google token persistence in browser storage.
+- no CSRF token persistence in browser storage/URL/log/persistent cache.
+- callback URL is clean after redirect and contains no `code`, `state`, `id_token`, `access_token`, or `csrf`.
 - no direct browser integration imports for OpenAI/Jira/Confluence/MCP.
 - SQL uses bound params in DB adapter.
 
@@ -466,10 +511,11 @@ npm run security:scan
 3. 같은 Google `sub`로 재로그인하면 같은 user가 재사용된다.
 4. DB-backed hashed session이 발급되고 CSRF가 private mutations에 적용된다.
 5. settings/runs/actions/audit/history가 user_id로 격리된다.
-6. `/copilot` 공개 mock demo가 깨지지 않는다.
-7. Google tokens/secrets가 브라우저와 로그에 남지 않는다.
-8. 두 강검토의 P0 gates가 테스트/acceptance criteria로 모두 반영된다.
-9. lint/typecheck/test/build/security:scan이 통과한다.
+6. user-scoped private stores 완료 전에는 Google auth feature flag가 켜지지 않는다.
+7. `/copilot` 공개 mock demo가 깨지지 않는다.
+8. Google tokens/secrets가 브라우저와 로그에 남지 않는다.
+9. 두 강검토의 P0 gates가 테스트/acceptance criteria로 모두 반영된다.
+10. lint/typecheck/test/build/security:scan이 통과한다.
 
 ## 11. 참고한 공식/주요 자료
 
