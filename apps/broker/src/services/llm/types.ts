@@ -5,6 +5,7 @@ export interface GroundedSummaryInput {
   question: string;
   sources: AtlassianSource[];
   messageId?: string;
+  signal?: AbortSignal;
 }
 
 export interface LlmTestResult {

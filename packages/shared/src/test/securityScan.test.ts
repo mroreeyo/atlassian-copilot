@@ -102,4 +102,33 @@ describe('frontend security scan', () => {
 
     expect(() => execFileSync(process.execPath, [scriptPath, root], { cwd: repoRoot, stdio: 'pipe' })).not.toThrow();
   });
+
+  it('keeps local sensitive artifact names covered by gitignore', () => {
+    const ignored = execFileSync('git', [
+      'check-ignore',
+      '.akc-state/auth.sqlite',
+      'local.sqlite',
+      'local.sqlite-wal',
+      'local.db',
+      'local.db-shm'
+    ], { cwd: repoRoot, encoding: 'utf8' }).trim().split(/\r?\n/);
+
+    expect(ignored).toEqual(expect.arrayContaining([
+      '.akc-state/auth.sqlite',
+      'local.sqlite',
+      'local.sqlite-wal',
+      'local.db',
+      'local.db-shm'
+    ]));
+  });
+
+  it('fails when local sensitive artifacts are not protected by git ignores', () => {
+    const root = fixtureRoot();
+    mkdirSync(join(root, '.akc-state'), { recursive: true });
+    writeFileSync(join(root, '.akc-state/auth.sqlite'), 'local sqlite placeholder');
+    writeFileSync(join(root, 'cache.db'), 'local db placeholder');
+
+    expect(() => execFileSync(process.execPath, [scriptPath, root], { cwd: root, stdio: 'pipe' })).toThrow();
+  });
+
 });

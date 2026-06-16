@@ -1,6 +1,7 @@
 import { buildSourceBundle, extractCitedSourceIds } from '../openai/sourceBundle.js';
 import type { LlmRuntimeConfig } from '../settings/llmSettingsStore.js';
 import { providerHttpFailureMessage, providerNetworkFailureMessage, providerStreamFailureMessage } from './providerErrors.js';
+import { createProviderTimeout, fetchWithProviderTimeout, readAbortableStream } from './providerTimeout.js';
 import type { GroundedSummaryInput, LlmSummaryEvent, LlmTestResult } from './types.js';
 
 interface AnthropicStreamEvent {
@@ -17,54 +18,60 @@ export async function* streamAnthropicSummary(input: GroundedSummaryInput, confi
 
   const bundle = buildSourceBundle(input.question, input.sources);
   let generatedText = '';
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': config.apiKey,
-      'anthropic-version': anthropicVersion
-    },
-    body: JSON.stringify({
-      model: config.model,
-      max_tokens: 1024,
-      stream: true,
-      system: 'You are Atlassian Copilot. Use only provided Jira/Confluence summaries and cite source IDs.',
-      messages: [{ role: 'user', content: bundle.prompt }]
-    })
-  });
+  const timeout = createProviderTimeout(process.env, input.signal);
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': config.apiKey,
+        'anthropic-version': anthropicVersion
+      },
+      body: JSON.stringify({
+        model: config.model,
+        max_tokens: 1024,
+        stream: true,
+        system: 'You are Atlassian Copilot. Use only provided Jira/Confluence summaries and cite source IDs.',
+        messages: [{ role: 'user', content: bundle.prompt }]
+      }),
+      signal: timeout.signal
+    });
 
-  if (!response.ok || !response.body) {
-    yield { type: 'llm.failed', messageId, error: providerHttpFailureMessage('anthropic', response.status, '요약 요청') };
-    return;
-  }
-
-  let completed = false;
-  for await (const event of readAnthropicMessagesStream(response.body)) {
-    if (event.type === 'content_block_delta' && event.delta?.text) {
-      generatedText += event.delta.text;
-      yield { type: 'llm.delta', messageId, text: event.delta.text };
-      continue;
-    }
-    if (event.type === 'message_stop') {
-      completed = true;
-      continue;
-    }
-    if (event.type === 'error') {
-      yield { type: 'llm.failed', messageId, error: anthropicErrorMessage(event) };
+    if (!response.ok || !response.body) {
+      yield { type: 'llm.failed', messageId, error: providerHttpFailureMessage('anthropic', response.status, '요약 요청') };
       return;
     }
-  }
 
-  if (!completed) {
-    yield { type: 'llm.failed', messageId, error: 'Claude stream ended before a message_stop event.' };
-    return;
+    let completed = false;
+    for await (const event of readAnthropicMessagesStream(response.body, timeout.signal)) {
+      if (event.type === 'content_block_delta' && event.delta?.text) {
+        generatedText += event.delta.text;
+        yield { type: 'llm.delta', messageId, text: event.delta.text };
+        continue;
+      }
+      if (event.type === 'message_stop') {
+        completed = true;
+        continue;
+      }
+      if (event.type === 'error') {
+        yield { type: 'llm.failed', messageId, error: anthropicErrorMessage(event) };
+        return;
+      }
+    }
+
+    if (!completed) {
+      yield { type: 'llm.failed', messageId, error: 'Claude stream ended before a message_stop event.' };
+      return;
+    }
+    yield { type: 'llm.completed', messageId, confidence: 'high', citationSourceIds: extractCitedSourceIds(generatedText, bundle.sourceIds), reviewRequired: true };
+  } finally {
+    timeout.clear();
   }
-  yield { type: 'llm.completed', messageId, confidence: 'high', citationSourceIds: extractCitedSourceIds(generatedText, bundle.sourceIds), reviewRequired: true };
 }
 
 export async function testAnthropicConnection(config: LlmRuntimeConfig): Promise<LlmTestResult> {
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetchWithProviderTimeout('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -84,10 +91,10 @@ export async function testAnthropicConnection(config: LlmRuntimeConfig): Promise
   }
 }
 
-export async function* readAnthropicMessagesStream(body: ReadableStream<Uint8Array>): AsyncGenerator<AnthropicStreamEvent> {
+export async function* readAnthropicMessagesStream(body: ReadableStream<Uint8Array>, signal?: AbortSignal): AsyncGenerator<AnthropicStreamEvent> {
   const decoder = new TextDecoder();
   let buffer = '';
-  for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
+  for await (const chunk of readAbortableStream(body, signal)) {
     buffer += decoder.decode(chunk, { stream: true });
     const parts = buffer.split('\n\n');
     buffer = parts.pop() ?? '';

@@ -9,7 +9,14 @@ const localDevOrigins = [
 
 export function getAllowedOrigins(env = process.env): string[] {
   const configured = env.BROKER_ALLOWED_ORIGINS?.split(',').map((origin) => origin.trim()).filter(Boolean) ?? [];
-  return configured.length > 0 ? configured : localDevOrigins;
+  if (configured.length > 0) return configured;
+  return isProductionRuntime(env) ? [] : localDevOrigins;
+}
+
+export function validateSecurityConfiguration(env = process.env): void {
+  if (isProductionRuntime(env) && getAllowedOrigins(env).length === 0) {
+    throw new Error('BROKER_ALLOWED_ORIGINS must be configured in production; localhost CORS fallback is disabled.');
+  }
 }
 
 export function isAllowedBrowserOrigin(origin: string | undefined, env = process.env): boolean {
@@ -23,7 +30,7 @@ export function isAllowedBrowserOrigin(origin: string | undefined, env = process
 }
 
 export function isSafeBrowserMutationSource(origin: string | undefined, referer: string | undefined, env = process.env): boolean {
-  if (!origin && !referer) return env.NODE_ENV !== 'production' && env.AKC_ALLOW_SOURCELESS_MUTATIONS === 'true';
+  if (!origin && !referer) return !isProductionRuntime(env) && env.AKC_ALLOW_SOURCELESS_MUTATIONS === 'true';
   if (isAllowedBrowserOrigin(origin, env)) return true;
   if (!referer) return false;
   try {
@@ -55,4 +62,8 @@ export function securityHeaders(): Record<string, string> {
 
 export function hasCredentialEnvironment(env = process.env): boolean {
   return Boolean(env.OPENAI_API_KEY || env.ANTHROPIC_API_KEY || env.CLAUDE_API_KEY || env.ATLASSIAN_URL || env.ATLASSIAN_EMAIL || env.ATLASSIAN_API_TOKEN);
+}
+
+export function isProductionRuntime(env = process.env): boolean {
+  return env.NODE_ENV === 'production' || env.AKC_ENV === 'production' || env.APP_ENV === 'production';
 }

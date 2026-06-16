@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   ActionApprovalRequestSchema,
   ActionCancelRequestSchema,
@@ -10,6 +10,7 @@ import {
   RunCreateRequestSchema,
   decideActionExecution,
   writeTools,
+  type CopilotSseEvent,
   type WriteTool
 } from '@akc/shared';
 import { randomUUID } from 'node:crypto';
@@ -26,13 +27,21 @@ import { buildCopilotSuggestions } from '../services/suggestions/copilotSuggesti
 import { currentAuthSession, requireAuthSession, requireCsrf } from '../services/auth/sessionCookie.js';
 import { createUserContext } from '../services/auth/userScope.js';
 
+const publicRunBuckets = new Map<string, { count: number; resetsAt: number }>();
+
+export function clearPublicRunRateLimitsForTests(): void {
+  publicRunBuckets.clear();
+}
+
 export function registerCopilotRoutes(app: FastifyInstance): void {
   app.post('/api/copilot/runs', async (request, reply) => {
-    const parsed = RunCreateRequestSchema.parse(request.body);
+    const parsed = RunCreateRequestSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Copilot 요청 형식이 올바르지 않습니다.' });
     const session = currentAuthSession(request);
     if (session && !requireCsrf(request, reply, session)) return;
+    if (!session && !consumePublicRunQuota(request, reply)) return;
     const runId = `run_${randomUUID().slice(0, 8)}`;
-    storeRun({ runId, message: parsed.message, mode: session ? parsed.mode : 'mock', userId: session?.user.id ?? null });
+    storeRun({ runId, message: parsed.data.message, mode: session ? parsed.data.mode : 'mock', userId: session?.user.id ?? null });
     return reply.send({ runId, streamUrl: `/api/copilot/runs/${runId}/stream` });
   });
 
@@ -53,12 +62,28 @@ export function registerCopilotRoutes(app: FastifyInstance): void {
     });
 
     const streamEnv = existingRun.userId ? createUserContext(existingRun.userId).env : process.env;
-    for await (const event of streamStoredRunEvents(id, streamEnv)) {
-      const parsed = CopilotSseEventSchema.parse(event);
-      reply.raw.write(`event: ${parsed.type}\n`);
-      reply.raw.write(`data: ${JSON.stringify(parsed)}\n\n`);
+    const runController = new AbortController();
+    const iterator = streamStoredRunEvents(id, streamEnv, { signal: runController.signal })[Symbol.asyncIterator]();
+    const startedAt = Date.now();
+    try {
+      while (true) {
+        const remainingMs = copilotRunMaxDurationMs() - (Date.now() - startedAt);
+        const next = await nextEventWithTimeout(iterator, remainingMs, () => runController.abort(new Error('Copilot run duration exceeded.')));
+        if (next === 'timeout') {
+          void iterator.return?.(undefined);
+          writeSseEvent(reply, { type: 'run.failed', runId: id, error: 'Copilot 실행 시간이 초과되었습니다.' });
+          break;
+        }
+        if (next.done) break;
+        writeSseEvent(reply, next.value);
+      }
+    } catch {
+      writeSseEvent(reply, { type: 'run.failed', runId: id, error: 'Copilot 응답 스트림이 실패했습니다.' });
+    } finally {
+      runController.abort();
+      await closeIterator(iterator);
+      reply.raw.end();
     }
-    reply.raw.end();
   });
 
   app.post('/api/copilot/actions/:id/approve', async (request, reply) => {
@@ -294,6 +319,80 @@ export function registerCopilotRoutes(app: FastifyInstance): void {
 
 function isWriteTool(tool: string): tool is WriteTool {
   return (writeTools as readonly string[]).includes(tool);
+}
+
+function consumePublicRunQuota(request: FastifyRequest, reply: FastifyReply): boolean {
+  const now = Date.now();
+  const windowMs = readPositiveInteger(process.env.AKC_PUBLIC_COPILOT_RUN_WINDOW_MS, 60_000);
+  const maxRequests = readPositiveInteger(process.env.AKC_PUBLIC_COPILOT_RUN_MAX, 30);
+  for (const [key, bucket] of publicRunBuckets) {
+    if (bucket.resetsAt <= now) publicRunBuckets.delete(key);
+  }
+
+  const key = publicRunRateLimitKey(request);
+  const current = publicRunBuckets.get(key);
+  if (!current || current.resetsAt <= now) {
+    publicRunBuckets.set(key, { count: 1, resetsAt: now + windowMs });
+    return true;
+  }
+  if (current.count >= maxRequests) {
+    reply.header('Retry-After', String(Math.max(1, Math.ceil((current.resetsAt - now) / 1000))));
+    reply.code(429).send({ error: '공개 데모 요청이 너무 많습니다. 잠시 후 다시 시도하세요.' });
+    return false;
+  }
+  publicRunBuckets.set(key, { ...current, count: current.count + 1 });
+  return true;
+}
+
+function publicRunRateLimitKey(request: FastifyRequest): string {
+  return `ip:${(request.ip || 'unknown').slice(0, 128)}`;
+}
+
+async function nextEventWithTimeout(
+  iterator: AsyncIterator<CopilotSseEvent>,
+  timeoutMs: number,
+  onTimeout: () => void
+): Promise<IteratorResult<CopilotSseEvent> | 'timeout'> {
+  if (timeoutMs <= 0) {
+    onTimeout();
+    return 'timeout';
+  }
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      iterator.next(),
+      new Promise<'timeout'>((resolve) => {
+        timeout = setTimeout(() => {
+          onTimeout();
+          resolve('timeout');
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function closeIterator(iterator: AsyncIterator<CopilotSseEvent>): Promise<void> {
+  await Promise.race([
+    iterator.return?.(undefined) ?? Promise.resolve(),
+    new Promise((resolve) => setTimeout(resolve, 100))
+  ]).catch(() => undefined);
+}
+
+function writeSseEvent(reply: FastifyReply, event: CopilotSseEvent): void {
+  const parsed = CopilotSseEventSchema.parse(event);
+  reply.raw.write(`event: ${parsed.type}\n`);
+  reply.raw.write(`data: ${JSON.stringify(parsed)}\n\n`);
+}
+
+function copilotRunMaxDurationMs(env = process.env): number {
+  return readPositiveInteger(env.AKC_COPILOT_RUN_MAX_DURATION_MS, 60_000);
+}
+
+function readPositiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
 function llmTestUnavailableMessage(settings: ReturnType<typeof readResolvedLlmSettings>): string {

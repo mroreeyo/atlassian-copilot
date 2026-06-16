@@ -21,7 +21,7 @@ export function createStoredRunEvents(runId: string): CopilotSseEvent[] {
   ];
 }
 
-export async function* streamStoredRunEvents(runId: string, env = process.env): AsyncGenerator<CopilotSseEvent> {
+export async function* streamStoredRunEvents(runId: string, env = process.env, options: { signal?: AbortSignal } = {}): AsyncGenerator<CopilotSseEvent> {
   const run = getStoredRun(runId);
   if (!run) throw new Error(`Unknown run id: ${runId}`);
   if (run.mode === 'mock') {
@@ -33,7 +33,7 @@ export async function* streamStoredRunEvents(runId: string, env = process.env): 
     return;
   }
   if (run.scenario === 'assigned_issues') {
-    yield* streamReadOnlyRunEvents(run, env);
+    yield* streamReadOnlyRunEvents(run, env, options.signal);
     return;
   }
   yield* streamNoDataRunEvents(run);
@@ -97,7 +97,7 @@ async function* streamActionReviewRunEvents(run: StoredRun): AsyncGenerator<Copi
   yield { type: 'run.completed', runId: run.runId };
 }
 
-async function* streamReadOnlyRunEvents(run: StoredRun, env = process.env): AsyncGenerator<CopilotSseEvent> {
+async function* streamReadOnlyRunEvents(run: StoredRun, env = process.env, signal?: AbortSignal): AsyncGenerator<CopilotSseEvent> {
   yield { type: 'run.created', runId: run.runId, createdAt: run.createdAt };
   if (run.actions.length > 0) yield { type: 'tool_plan.created', actions: run.actions };
 
@@ -138,7 +138,7 @@ async function* streamReadOnlyRunEvents(run: StoredRun, env = process.env): Asyn
     if (actionSources.length > 0) yield { type: 'evidence.found', sources: actionSources };
   }
 
-  const summaryCompleted = yield* streamSummaryForSources(run, sources, env);
+  const summaryCompleted = yield* streamSummaryForSources(run, sources, env, 'msg_001', signal);
   if (!summaryCompleted) {
     yield { type: 'run.failed', runId: run.runId, error: genericLlmStreamFailureMessage() };
     return;
@@ -146,7 +146,7 @@ async function* streamReadOnlyRunEvents(run: StoredRun, env = process.env): Asyn
   yield { type: 'run.completed', runId: run.runId };
 }
 
-async function* streamSummaryForSources(run: StoredRun, sources: AtlassianSource[], env = process.env, messageId = 'msg_001'): AsyncGenerator<CopilotSseEvent, boolean> {
+async function* streamSummaryForSources(run: StoredRun, sources: AtlassianSource[], env = process.env, messageId = 'msg_001', signal?: AbortSignal): AsyncGenerator<CopilotSseEvent, boolean> {
   if (sources.length === 0) {
     yield* streamNoDataSummary(run, messageId);
     return true;
@@ -155,7 +155,7 @@ async function* streamSummaryForSources(run: StoredRun, sources: AtlassianSource
   const runtime = getLlmRuntimeConfig(env);
   try {
     const stream = runtime
-      ? streamConfiguredLlmSummary({ question: run.message, sources, messageId }, runtime)
+      ? streamConfiguredLlmSummary({ question: run.message, sources, messageId, ...(signal ? { signal } : {}) }, runtime)
       : streamMockSummary({ question: run.message, sources, messageId });
     for await (const event of stream) {
       yield event;

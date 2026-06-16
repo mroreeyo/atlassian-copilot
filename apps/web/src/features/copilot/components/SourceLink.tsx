@@ -26,7 +26,7 @@ export function SourceLink({
   const content = children ?? source.title;
   if (!href) return <span className={className}>{content}</span>;
   return (
-    <a className={className ?? 'source-link'} href={href} target="_blank" rel="noreferrer">
+    <a className={className ?? 'source-link'} href={href} target="_blank" rel="noopener noreferrer">
       {content}
     </a>
   );
@@ -48,7 +48,7 @@ export function renderSourceLinkedText(text: string, sources: AtlassianSource[] 
 
     if (href) {
       nodes.push(
-        <a key={`markdown-link-${index}`} className="source-link inline-source-link" href={href} target="_blank" rel="noreferrer">
+        <a key={`markdown-link-${index}`} className="source-link inline-source-link" href={href} target="_blank" rel="noopener noreferrer">
           {label}
         </a>
       );

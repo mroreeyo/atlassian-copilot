@@ -15,6 +15,11 @@ apps/broker/.env.local
 apps/broker/.local/
 apps/web/.env
 apps/web/.env.local
+.akc-state/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
 *.pem
 *.key
 *.crt

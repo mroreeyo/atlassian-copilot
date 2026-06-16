@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { InjectOptions, LightMyRequestResponse } from 'fastify';
 import { buildApp } from '../app.js';
+import { clearPublicRunRateLimitsForTests } from '../routes/copilot.js';
 import { setGoogleOidcClientForTests } from '../services/auth/googleOidc.js';
 import { clearAuditEntriesForTests, listAuditEntries } from '../services/audit/auditLog.js';
 import { clearStoredRunsForTests } from '../services/runs/runStore.js';
@@ -39,6 +40,14 @@ const originalEnv = {
   ATLASSIAN_SITE_HOST_ALLOWLIST: process.env.ATLASSIAN_SITE_HOST_ALLOWLIST,
   AKC_ATLASSIAN_SITE_HOST_ALLOWLIST: process.env.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST,
   AKC_ALLOW_SOURCELESS_MUTATIONS: process.env.AKC_ALLOW_SOURCELESS_MUTATIONS,
+  BROKER_ALLOWED_ORIGINS: process.env.BROKER_ALLOWED_ORIGINS,
+  AKC_PUBLIC_COPILOT_RUN_MAX: process.env.AKC_PUBLIC_COPILOT_RUN_MAX,
+  AKC_PUBLIC_COPILOT_RUN_WINDOW_MS: process.env.AKC_PUBLIC_COPILOT_RUN_WINDOW_MS,
+  AKC_COPILOT_RUN_MAX_DURATION_MS: process.env.AKC_COPILOT_RUN_MAX_DURATION_MS,
+  AKC_BROKER_BODY_LIMIT_BYTES: process.env.AKC_BROKER_BODY_LIMIT_BYTES,
+  AKC_RUN_TTL_MS: process.env.AKC_RUN_TTL_MS,
+  AKC_MAX_STORED_RUNS: process.env.AKC_MAX_STORED_RUNS,
+  AKC_LLM_PROVIDER_TIMEOUT_MS: process.env.AKC_LLM_PROVIDER_TIMEOUT_MS,
   AKC_AUTH_DB_PATH: process.env.AKC_AUTH_DB_PATH,
   NODE_ENV: process.env.NODE_ENV,
   AKC_ENABLE_GOOGLE_AUTH: process.env.AKC_ENABLE_GOOGLE_AUTH,
@@ -70,6 +79,14 @@ beforeAll(async () => {
   delete process.env.AKC_CREDENTIAL_ENCRYPTION_KEY;
   delete process.env.ATLASSIAN_SITE_HOST_ALLOWLIST;
   delete process.env.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST;
+  delete process.env.BROKER_ALLOWED_ORIGINS;
+  delete process.env.AKC_PUBLIC_COPILOT_RUN_MAX;
+  delete process.env.AKC_PUBLIC_COPILOT_RUN_WINDOW_MS;
+  delete process.env.AKC_COPILOT_RUN_MAX_DURATION_MS;
+  delete process.env.AKC_BROKER_BODY_LIMIT_BYTES;
+  delete process.env.AKC_RUN_TTL_MS;
+  delete process.env.AKC_MAX_STORED_RUNS;
+  delete process.env.AKC_LLM_PROVIDER_TIMEOUT_MS;
   delete process.env.AKC_ENABLE_LOCAL_AUTH;
   process.env.AKC_ALLOW_SOURCELESS_MUTATIONS = 'true';
   app = buildApp();
@@ -86,6 +103,7 @@ beforeAll(async () => {
 
 afterEach(() => {
   clearStoredRunsForTests();
+  clearPublicRunRateLimitsForTests();
   clearAuditEntriesForTests();
   clearPersonalAtlassianSettings(userScopedEnv(authUserId));
   clearPersonalLlmSettings(userScopedEnv(authUserId));
@@ -109,6 +127,14 @@ afterEach(() => {
   delete process.env.ATLASSIAN_SITE_HOST_ALLOWLIST;
   delete process.env.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST;
   restoreEnv('AKC_AUTH_DB_PATH', originalEnv.AKC_AUTH_DB_PATH);
+  delete process.env.BROKER_ALLOWED_ORIGINS;
+  delete process.env.AKC_PUBLIC_COPILOT_RUN_MAX;
+  delete process.env.AKC_PUBLIC_COPILOT_RUN_WINDOW_MS;
+  delete process.env.AKC_COPILOT_RUN_MAX_DURATION_MS;
+  delete process.env.AKC_BROKER_BODY_LIMIT_BYTES;
+  delete process.env.AKC_RUN_TTL_MS;
+  delete process.env.AKC_MAX_STORED_RUNS;
+  delete process.env.AKC_LLM_PROVIDER_TIMEOUT_MS;
   process.env.AKC_ALLOW_SOURCELESS_MUTATIONS = 'true';
   restoreEnv('NODE_ENV', originalEnv.NODE_ENV);
   restoreEnv('AKC_ENABLE_GOOGLE_AUTH', originalEnv.AKC_ENABLE_GOOGLE_AUTH);
@@ -144,6 +170,14 @@ afterAll(async () => {
   restoreEnv('AKC_ATLASSIAN_SITE_HOST_ALLOWLIST', originalEnv.AKC_ATLASSIAN_SITE_HOST_ALLOWLIST);
   restoreEnv('AKC_ALLOW_SOURCELESS_MUTATIONS', originalEnv.AKC_ALLOW_SOURCELESS_MUTATIONS);
   restoreEnv('AKC_AUTH_DB_PATH', originalEnv.AKC_AUTH_DB_PATH);
+  restoreEnv('BROKER_ALLOWED_ORIGINS', originalEnv.BROKER_ALLOWED_ORIGINS);
+  restoreEnv('AKC_PUBLIC_COPILOT_RUN_MAX', originalEnv.AKC_PUBLIC_COPILOT_RUN_MAX);
+  restoreEnv('AKC_PUBLIC_COPILOT_RUN_WINDOW_MS', originalEnv.AKC_PUBLIC_COPILOT_RUN_WINDOW_MS);
+  restoreEnv('AKC_COPILOT_RUN_MAX_DURATION_MS', originalEnv.AKC_COPILOT_RUN_MAX_DURATION_MS);
+  restoreEnv('AKC_BROKER_BODY_LIMIT_BYTES', originalEnv.AKC_BROKER_BODY_LIMIT_BYTES);
+  restoreEnv('AKC_RUN_TTL_MS', originalEnv.AKC_RUN_TTL_MS);
+  restoreEnv('AKC_MAX_STORED_RUNS', originalEnv.AKC_MAX_STORED_RUNS);
+  restoreEnv('AKC_LLM_PROVIDER_TIMEOUT_MS', originalEnv.AKC_LLM_PROVIDER_TIMEOUT_MS);
   restoreEnv('NODE_ENV', originalEnv.NODE_ENV);
   restoreEnv('AKC_ENABLE_GOOGLE_AUTH', originalEnv.AKC_ENABLE_GOOGLE_AUTH);
   restoreEnv('AKC_ENABLE_LOCAL_AUTH', originalEnv.AKC_ENABLE_LOCAL_AUTH);
@@ -215,6 +249,14 @@ function streamFromText(text: string): ReadableStream<Uint8Array> {
     start(controller) {
       controller.enqueue(encoder.encode(text));
       controller.close();
+    }
+  });
+}
+
+function stallingStream(): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start() {
+      // Intentionally never enqueue or close; used to prove run/provider aborts unblock SSE.
     }
   });
 }
@@ -325,6 +367,7 @@ describe('broker routes', () => {
 
   it('disables local email/password auth by default in production unless explicitly enabled', async () => {
     process.env.NODE_ENV = 'production';
+    process.env.BROKER_ALLOWED_ORIGINS = 'http://localhost:5173';
     delete process.env.AKC_ENABLE_LOCAL_AUTH;
 
     const disabledSignup = await app.inject({
@@ -366,6 +409,7 @@ describe('broker routes', () => {
     await app.inject({ method: 'POST', url: '/api/auth/signup', payload: { email, password: 'StrongPass123' } });
 
     process.env.NODE_ENV = 'production';
+    process.env.BROKER_ALLOWED_ORIGINS = 'http://localhost:5173';
     process.env.AKC_ENABLE_LOCAL_AUTH = 'true';
     process.env.AKC_AUTH_CSRF_SECRET = Buffer.alloc(32, 8).toString('base64');
     const login = await app.inject({
@@ -464,6 +508,80 @@ describe('broker routes', () => {
     expect(missingCsrf.statusCode).toBe(403);
     expect(publicDemo.statusCode).toBe(200);
     expect(publicDemo.json()).toMatchObject({ streamUrl: expect.stringContaining('/api/copilot/runs/') });
+  }, 30_000);
+
+  it('forces unauthenticated Copilot runs into mock mode even when readonly or sandbox-write is requested', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    for (const mode of ['readonly', 'sandbox-write'] as const) {
+      const created = await app.inject({
+        method: 'POST',
+        url: '/api/copilot/runs',
+        headers: { origin: 'http://localhost:5173' },
+        payload: { message: 'SCRUM-7에 댓글로 "검토 완료" 남겨줘', mode }
+      });
+      expect(created.statusCode).toBe(200);
+      const stream = await app.inject({ method: 'GET', url: created.json<{ streamUrl: string }>().streamUrl });
+
+      expect(stream.statusCode).toBe(200);
+      expect(stream.body).toContain('데모 모드입니다');
+      expect(stream.body).toContain('"origin":"demo"');
+      expect(stream.body).not.toContain('event: action_review.required');
+      expect(stream.body).not.toContain('jira_add_comment');
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  }, 30_000);
+
+  it('rate limits public Copilot run bursts without leaking request content', async () => {
+    process.env.AKC_PUBLIC_COPILOT_RUN_MAX = '2';
+    process.env.AKC_PUBLIC_COPILOT_RUN_WINDOW_MS = '60000';
+    clearPublicRunRateLimitsForTests();
+    const payload = { message: 'public burst secret should not echo', mode: 'readonly' as const };
+
+    const first = await app.inject({ method: 'POST', url: '/api/copilot/runs', headers: { origin: 'http://localhost:5173' }, payload });
+    const second = await app.inject({ method: 'POST', url: '/api/copilot/runs', headers: { origin: 'http://localhost:5173' }, payload });
+    const third = await app.inject({ method: 'POST', url: '/api/copilot/runs', headers: { origin: 'http://localhost:5173' }, payload });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(third.statusCode).toBe(429);
+    expect(third.headers['retry-after']).toBeDefined();
+    expect(third.body).not.toContain(payload.message);
+  }, 30_000);
+
+  it('rejects public Copilot messages over the contract max without echoing the message', async () => {
+    const longMessage = 'x'.repeat(4001);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/copilot/runs',
+      headers: { origin: 'http://localhost:5173' },
+      payload: { message: longMessage, mode: 'readonly' }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body).not.toContain(longMessage);
+    expect(response.body).not.toContain('streamUrl');
+  }, 30_000);
+
+
+  it('caps stored public runs so old run IDs are cleaned up', async () => {
+    process.env.AKC_MAX_STORED_RUNS = '1';
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/copilot/runs',
+      headers: { origin: 'http://localhost:5173' },
+      payload: { message: 'first public run', mode: 'readonly' }
+    });
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/copilot/runs',
+      headers: { origin: 'http://localhost:5173' },
+      payload: { message: 'second public run', mode: 'readonly' }
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    const oldStream = await app.inject({ method: 'GET', url: first.json<{ streamUrl: string }>().streamUrl });
+    expect(oldStream.statusCode).toBe(404);
   }, 30_000);
 
   it('streams canonical SSE events from the server endpoint', async () => {
@@ -787,6 +905,29 @@ describe('broker routes', () => {
     expect(denied.headers['access-control-allow-origin']).toBeUndefined();
   }, 30_000);
 
+  it('fails closed instead of using localhost CORS fallback in production without explicit origins', async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousOrigins = process.env.BROKER_ALLOWED_ORIGINS;
+    process.env.NODE_ENV = 'production';
+    delete process.env.BROKER_ALLOWED_ORIGINS;
+    expect(() => buildApp()).toThrow(/BROKER_ALLOWED_ORIGINS/);
+
+    process.env.BROKER_ALLOWED_ORIGINS = 'https://app.example.com';
+    const productionApp = buildApp();
+    try {
+      const localhost = await productionApp.inject({ method: 'OPTIONS', url: '/api/history', headers: { origin: 'http://localhost:5173', 'access-control-request-method': 'GET' } });
+      const configured = await productionApp.inject({ method: 'OPTIONS', url: '/api/history', headers: { origin: 'https://app.example.com', 'access-control-request-method': 'GET' } });
+
+      expect(localhost.headers['access-control-allow-origin']).toBeUndefined();
+      expect(configured.headers['access-control-allow-origin']).toBe('https://app.example.com');
+      expect(configured.headers['access-control-allow-credentials']).toBe('true');
+    } finally {
+      await productionApp.close();
+      restoreEnv('NODE_ENV', previousNodeEnv);
+      restoreEnv('BROKER_ALLOWED_ORIGINS', previousOrigins);
+    }
+  }, 30_000);
+
   it('sets browser security headers on broker responses', async () => {
     const response = await authInject({ method: 'GET', url: '/api/history' });
 
@@ -1094,6 +1235,7 @@ describe('broker routes', () => {
 
   it('fails closed on production secret encryption without a managed key', async () => {
     process.env.NODE_ENV = 'production';
+    process.env.BROKER_ALLOWED_ORIGINS = 'http://localhost:5173';
     process.env.AKC_ENABLE_LOCAL_AUTH = 'true';
     process.env.AKC_AUTH_CSRF_SECRET = Buffer.alloc(32, 7).toString('base64');
     delete process.env.AKC_CREDENTIAL_ENCRYPTION_KEY;
@@ -1386,6 +1528,35 @@ describe('broker routes', () => {
     expect(stream.statusCode).toBe(200);
     expect(stream.body).toContain('OpenAI provider summary');
     expect(stream.body).toContain('event: run.completed');
+  }, 30_000);
+
+
+  it('aborts a configured LLM stream that sends headers and then stalls', async () => {
+    const secret = 'sk-openai-stalling-secret';
+    process.env.AKC_COPILOT_RUN_MAX_DURATION_MS = '50';
+    process.env.AKC_LLM_PROVIDER_TIMEOUT_MS = '5000';
+    let providerSignal: AbortSignal | undefined;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes('/rest/api/3/search/jql')) return assignedIssueSearchResponse();
+      if (url === 'https://api.openai.com/v1/responses') {
+        providerSignal = init?.signal ?? undefined;
+        return new Response(stallingStream(), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    await authInject({ method: 'POST', url: '/api/settings/llm', payload: { provider: 'openai', apiKey: secret, model: 'gpt-4.1-mini', enabled: true } });
+    await saveAtlassianSettingsForAssignedIssues();
+    const { streamUrl } = await createRun(app, '나에게 할당된 이슈들을 조회해줘');
+
+    const stream = await authInject({ method: 'GET', url: streamUrl });
+
+    expect(stream.statusCode).toBe(200);
+    expect(stream.body).toContain('event: run.failed');
+    expect(stream.body).toContain('Copilot 실행 시간이 초과되었습니다.');
+    expect(stream.body).not.toContain('event: run.completed');
+    expect(stream.body).not.toContain(secret);
+    expect(providerSignal?.aborted).toBe(true);
   }, 30_000);
 
   it('terminates Copilot runs as failed when a configured LLM stream fails without leaking provider details', async () => {

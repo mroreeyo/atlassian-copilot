@@ -1,6 +1,7 @@
 import { buildSourceBundle, extractCitedSourceIds } from '../openai/sourceBundle.js';
 import type { LlmRuntimeConfig } from '../settings/llmSettingsStore.js';
 import { providerHttpFailureMessage, providerNetworkFailureMessage, providerStreamFailureMessage } from './providerErrors.js';
+import { createProviderTimeout, fetchWithProviderTimeout, readAbortableStream } from './providerTimeout.js';
 import type { GroundedSummaryInput, LlmSummaryEvent, LlmTestResult } from './types.js';
 
 interface OpenRouterChatStreamEvent {
@@ -21,67 +22,73 @@ export async function* streamOpenRouterSummary(input: GroundedSummaryInput, conf
 
   const bundle = buildSourceBundle(input.question, input.sources);
   let generatedText = '';
-  const response = await fetch(openRouterChatCompletionsUrl, {
-    method: 'POST',
-    headers: openRouterHeaders(config.apiKey),
-    body: JSON.stringify({
-      model: config.model,
-      messages: [
-        { role: 'system', content: openRouterSystemPrompt },
-        { role: 'user', content: bundle.prompt }
-      ],
-      stream: true
-    })
-  });
+  const timeout = createProviderTimeout(process.env, input.signal);
+  try {
+    const response = await fetch(openRouterChatCompletionsUrl, {
+      method: 'POST',
+      headers: openRouterHeaders(config.apiKey),
+      body: JSON.stringify({
+        model: config.model,
+        messages: [
+          { role: 'system', content: openRouterSystemPrompt },
+          { role: 'user', content: bundle.prompt }
+        ],
+        stream: true
+      }),
+      signal: timeout.signal
+    });
 
-  if (!response.ok || !response.body) {
-    yield { type: 'llm.failed', messageId, error: providerHttpFailureMessage('openrouter', response.status, '요약 요청') };
-    return;
-  }
-
-  let completed = false;
-  for await (const event of readOpenRouterChatStream(response.body)) {
-    if (event === 'done') {
-      completed = true;
-      continue;
-    }
-
-    const topLevelError = openRouterErrorMessage(event.error);
-    if (topLevelError) {
-      yield { type: 'llm.failed', messageId, error: topLevelError };
+    if (!response.ok || !response.body) {
+      yield { type: 'llm.failed', messageId, error: providerHttpFailureMessage('openrouter', response.status, '요약 요청') };
       return;
     }
 
-    for (const choice of event.choices ?? []) {
-      const choiceError = openRouterErrorMessage(choice.error);
-      if (choiceError) {
-        yield { type: 'llm.failed', messageId, error: choiceError };
+    let completed = false;
+    for await (const event of readOpenRouterChatStream(response.body, timeout.signal)) {
+      if (event === 'done') {
+        completed = true;
+        continue;
+      }
+
+      const topLevelError = openRouterErrorMessage(event.error);
+      if (topLevelError) {
+        yield { type: 'llm.failed', messageId, error: topLevelError };
         return;
       }
-      if (choice.delta?.content) {
-        generatedText += choice.delta.content;
-        yield { type: 'llm.delta', messageId, text: choice.delta.content };
-      }
-      if (choice.finish_reason) {
-        if (choice.finish_reason === 'error') {
-          yield { type: 'llm.failed', messageId, error: 'OpenRouter stream terminated with finish_reason=error.' };
+
+      for (const choice of event.choices ?? []) {
+        const choiceError = openRouterErrorMessage(choice.error);
+        if (choiceError) {
+          yield { type: 'llm.failed', messageId, error: choiceError };
           return;
         }
-        completed = true;
+        if (choice.delta?.content) {
+          generatedText += choice.delta.content;
+          yield { type: 'llm.delta', messageId, text: choice.delta.content };
+        }
+        if (choice.finish_reason) {
+          if (choice.finish_reason === 'error') {
+            yield { type: 'llm.failed', messageId, error: 'OpenRouter stream terminated with finish_reason=error.' };
+            return;
+          }
+          completed = true;
+        }
       }
     }
-  }
 
-  if (!completed) {
-    yield { type: 'llm.failed', messageId, error: 'OpenRouter stream ended before a completion marker.' };
-    return;
+    if (!completed) {
+      yield { type: 'llm.failed', messageId, error: 'OpenRouter stream ended before a completion marker.' };
+      return;
+    }
+    yield { type: 'llm.completed', messageId, confidence: 'high', citationSourceIds: extractCitedSourceIds(generatedText, bundle.sourceIds), reviewRequired: true };
+  } finally {
+    timeout.clear();
   }
-  yield { type: 'llm.completed', messageId, confidence: 'high', citationSourceIds: extractCitedSourceIds(generatedText, bundle.sourceIds), reviewRequired: true };
 }
 
 export async function testOpenRouterConnection(config: LlmRuntimeConfig): Promise<LlmTestResult> {
   try {
-    const response = await fetch(openRouterChatCompletionsUrl, {
+    const response = await fetchWithProviderTimeout(openRouterChatCompletionsUrl, {
       method: 'POST',
       headers: openRouterHeaders(config.apiKey),
       body: JSON.stringify({
@@ -98,10 +105,10 @@ export async function testOpenRouterConnection(config: LlmRuntimeConfig): Promis
   }
 }
 
-export async function* readOpenRouterChatStream(body: ReadableStream<Uint8Array>): AsyncGenerator<OpenRouterChatStreamEvent | 'done'> {
+export async function* readOpenRouterChatStream(body: ReadableStream<Uint8Array>, signal?: AbortSignal): AsyncGenerator<OpenRouterChatStreamEvent | 'done'> {
   const decoder = new TextDecoder();
   let buffer = '';
-  for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
+  for await (const chunk of readAbortableStream(body, signal)) {
     buffer += decoder.decode(chunk, { stream: true });
     const parts = buffer.split('\n\n');
     buffer = parts.pop() ?? '';

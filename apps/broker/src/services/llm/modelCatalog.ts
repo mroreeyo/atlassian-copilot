@@ -8,6 +8,7 @@ import type {
 import { LlmProviderModelsResponseSchema } from '@akc/shared';
 import { createHash } from 'node:crypto';
 import { resolveLlmProviderCredential } from '../settings/llmSettingsStore.js';
+import { fetchWithProviderTimeout } from './providerTimeout.js';
 
 interface CatalogCacheEntry {
   response: LlmProviderModelsResponse;
@@ -84,7 +85,7 @@ async function fetchProviderCatalog(provider: LlmModelCatalogProvider, apiKey: s
 
 async function fetchOpenAiModels(apiKey: string | undefined): Promise<ProviderCatalogResult> {
   if (!apiKey) throw new Error('OpenAI model catalog requires an API key.');
-  const response = await fetch('https://api.openai.com/v1/models', {
+  const response = await fetchWithProviderTimeout('https://api.openai.com/v1/models', {
     method: 'GET',
     headers: { Authorization: `Bearer ${apiKey}` }
   });
@@ -100,7 +101,7 @@ async function fetchOpenAiModels(apiKey: string | undefined): Promise<ProviderCa
 
 async function fetchAnthropicModels(apiKey: string | undefined): Promise<ProviderCatalogResult> {
   if (!apiKey) throw new Error('Claude model catalog requires an API key.');
-  const response = await fetch('https://api.anthropic.com/v1/models?limit=1000', {
+  const response = await fetchWithProviderTimeout('https://api.anthropic.com/v1/models?limit=1000', {
     method: 'GET',
     headers: {
       'x-api-key': apiKey,
@@ -127,7 +128,7 @@ async function fetchAnthropicModels(apiKey: string | undefined): Promise<Provide
 async function fetchOpenRouterModels(apiKey: string | undefined): Promise<ProviderCatalogResult> {
   const headers: Record<string, string> = {};
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-  const response = await fetch('https://openrouter.ai/api/v1/models?output_modalities=text', {
+  const response = await fetchWithProviderTimeout('https://openrouter.ai/api/v1/models?output_modalities=text', {
     method: 'GET',
     headers
   });

@@ -2,10 +2,11 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerCopilotRoutes } from './routes/copilot.js';
-import { getAllowedOrigins, isSafeBrowserMutationSource, securityHeaders } from './config/security.js';
+import { getAllowedOrigins, isSafeBrowserMutationSource, securityHeaders, validateSecurityConfiguration } from './config/security.js';
 
 export function buildApp() {
-  const app = Fastify({ logger: false });
+  validateSecurityConfiguration();
+  const app = Fastify({ logger: false, bodyLimit: brokerBodyLimitBytes() });
   app.register(cors, { credentials: true, origin: getAllowedOrigins() });
   app.addHook('onRequest', async (request, reply) => {
     for (const [name, value] of Object.entries(securityHeaders())) reply.header(name, value);
@@ -22,4 +23,9 @@ export function buildApp() {
 
 function isUnsafeMutation(method: string): boolean {
   return method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
+}
+
+function brokerBodyLimitBytes(env = process.env): number {
+  const parsed = Number(env.AKC_BROKER_BODY_LIMIT_BYTES);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 64 * 1024;
 }
