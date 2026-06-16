@@ -17,7 +17,7 @@ export const LlmConnectionStateSchema = z.enum(['not_configured', 'configured', 
 export const McpConnectionStateSchema = z.enum(['not_configured', 'configured', 'transport_pending', 'connected', 'failed']);
 
 export const RunCreateRequestSchema = z.object({
-  message: z.string().trim().min(1),
+  message: z.string().trim().min(1).max(4000),
   mode: RunModeSchema.default('readonly')
 });
 

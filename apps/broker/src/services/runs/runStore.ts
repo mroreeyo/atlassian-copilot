@@ -37,6 +37,7 @@ export interface StoredRun {
 const runs = new Map<string, StoredRun>();
 
 export function storeRun(run: { runId: string; message: string; mode: RunMode; userId?: string | null | undefined }): StoredRun {
+  cleanupStoredRuns();
   const scenario = detectRunScenario(run.message);
   const plan = run.mode === 'mock' ? buildDemoActionPlan() : buildActionPlan(scenario, run.message);
   const actionIdMap = Object.fromEntries(plan.actions.map((action) => [action.id, `${run.runId}_${action.id}`]));
@@ -57,6 +58,7 @@ export function storeRun(run: { runId: string; message: string; mode: RunMode; u
     createdAt: new Date().toISOString()
   };
   runs.set(run.runId, stored);
+  trimStoredRuns();
   return stored;
 }
 
@@ -108,6 +110,28 @@ export function resolveAction(run: StoredRun, actionId: string, resolution: Stor
 
 export function clearStoredRunsForTests(): void {
   runs.clear();
+}
+
+function cleanupStoredRuns(nowMs = Date.now()): void {
+  const ttlMs = readPositiveInteger(process.env.AKC_RUN_TTL_MS, 30 * 60 * 1000);
+  for (const [runId, run] of runs) {
+    const createdAt = Date.parse(run.createdAt);
+    if (!Number.isFinite(createdAt) || createdAt + ttlMs < nowMs) runs.delete(runId);
+  }
+}
+
+function trimStoredRuns(): void {
+  const maxRuns = readPositiveInteger(process.env.AKC_MAX_STORED_RUNS, 200);
+  while (runs.size > maxRuns) {
+    const oldest = runs.keys().next().value as string | undefined;
+    if (!oldest) return;
+    runs.delete(oldest);
+  }
+}
+
+function readPositiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
 function detectRunScenario(message: string): RunScenario {

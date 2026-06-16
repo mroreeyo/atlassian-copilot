@@ -1,5 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join, relative } from 'node:path';
 
 const root = process.argv[2] ?? 'apps/web';
 const ignoredDirectories = new Set(['dist', 'node_modules', 'coverage']);
@@ -28,6 +29,11 @@ const forbiddenStrings = [
   'GOOGLE_REFRESH_TOKEN',
   'AKC_AUTH_CSRF_SECRET',
   'AKC_CREDENTIAL_ENCRYPTION_KEY'
+];
+const forbiddenArtifactPatterns = [
+  /(^|[/\\])\.akc-state([/\\]|$)/,
+  /(^|[/\\])[^/\\]+\.sqlite(?:-|$)/i,
+  /(^|[/\\])[^/\\]+\.db(?:-|$)/i
 ];
 const forbiddenPatterns = [
   /from\s+['"]openai['"]/i,
@@ -66,6 +72,62 @@ function files(dir) {
   });
 }
 
+function isForbiddenArtifactPath(path) {
+  return forbiddenArtifactPatterns.some((pattern) => pattern.test(path));
+}
+
+function gitListPaths(args, cwd) {
+  try {
+    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .split('\0')
+      .filter(Boolean);
+  } catch {
+    return null;
+  }
+}
+
+function gitRoot(cwd) {
+  try {
+    return execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function allLocalPaths(dir) {
+  return readdirSync(dir).flatMap((entry) => {
+    const full = join(dir, entry);
+    const stats = statSync(full);
+    if (stats.isDirectory()) {
+      if (ignoredDirectories.has(entry) || entry === '.git') return [];
+      return [full, ...allLocalPaths(full)];
+    }
+    return [full];
+  });
+}
+
+function artifactFailures(scanRoot) {
+  const failures = [];
+  const repoRoot = gitRoot(process.cwd());
+  if (repoRoot) {
+    const tracked = gitListPaths(['ls-files', '-z'], repoRoot) ?? [];
+    const untracked = gitListPaths(['ls-files', '-z', '--others', '--exclude-standard'], repoRoot) ?? [];
+    for (const file of tracked) {
+      if (isForbiddenArtifactPath(file)) failures.push(`${file}: forbidden tracked sensitive artifact`);
+    }
+    for (const file of untracked) {
+      if (isForbiddenArtifactPath(file)) failures.push(`${file}: forbidden unignored sensitive artifact`);
+    }
+    return failures;
+  }
+
+  for (const file of allLocalPaths(scanRoot)) {
+    const rel = relative(scanRoot, file) || basename(file);
+    if (isForbiddenArtifactPath(rel)) failures.push(`${file}: forbidden local sensitive artifact`);
+  }
+  return failures;
+}
+
 const failures = [];
 for (const file of files(root)) {
   const text = readFileSync(file, 'utf8');
@@ -76,9 +138,10 @@ for (const file of files(root)) {
     if (pattern.test(text)) failures.push(`${file}: forbidden frontend direct integration pattern ${pattern}`);
   }
 }
+failures.push(...artifactFailures(root));
 
 if (failures.length > 0) {
   console.error(failures.join('\n'));
   process.exit(1);
 }
-console.info('security scan passed: frontend has no forbidden secret strings, auth material persistence, or direct integration imports');
+console.info('security scan passed: frontend has no forbidden secret strings, auth material persistence, direct integration imports, or sensitive local artifact leaks');

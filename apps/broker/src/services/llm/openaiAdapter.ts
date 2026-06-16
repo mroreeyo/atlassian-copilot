@@ -1,6 +1,7 @@
 import { buildSourceBundle, extractCitedSourceIds } from '../openai/sourceBundle.js';
 import type { LlmRuntimeConfig } from '../settings/llmSettingsStore.js';
 import { providerHttpFailureMessage, providerNetworkFailureMessage, providerStreamFailureMessage } from './providerErrors.js';
+import { createProviderTimeout, fetchWithProviderTimeout, readAbortableStream } from './providerTimeout.js';
 import type { GroundedSummaryInput, LlmSummaryEvent, LlmTestResult } from './types.js';
 
 interface ResponsesStreamEvent {
@@ -16,52 +17,58 @@ export async function* streamOpenAiSummary(input: GroundedSummaryInput, config: 
 
   const bundle = buildSourceBundle(input.question, input.sources);
   let generatedText = '';
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`
-    },
-    body: JSON.stringify({ model: config.model, input: bundle.prompt, stream: true, store: false })
-  });
-
-  if (!response.ok || !response.body) {
-    yield { type: 'llm.failed', messageId, error: providerHttpFailureMessage('openai', response.status, '요약 요청') };
-    return;
-  }
-
-  let completed = false;
+  const timeout = createProviderTimeout(process.env, input.signal);
   try {
-    for await (const event of readOpenAiResponsesStream(response.body)) {
-      if (event.type === 'response.output_text.delta' && event.delta) {
-        generatedText += event.delta;
-        yield { type: 'llm.delta', messageId, text: event.delta };
-        continue;
-      }
-      if (event.type === 'response.completed' || event.type === 'response.output_text.done') {
-        completed = true;
-        continue;
-      }
-      if (event.type === 'response.failed' || event.type === 'error') {
-        yield { type: 'llm.failed', messageId, error: responseErrorMessage(event) };
-        return;
-      }
-    }
-  } catch {
-    yield { type: 'llm.failed', messageId, error: providerStreamFailureMessage('openai') };
-    return;
-  }
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`
+      },
+      body: JSON.stringify({ model: config.model, input: bundle.prompt, stream: true, store: false }),
+      signal: timeout.signal
+    });
 
-  if (!completed) {
-    yield { type: 'llm.failed', messageId, error: 'OpenAI stream ended before a completion event.' };
-    return;
+    if (!response.ok || !response.body) {
+      yield { type: 'llm.failed', messageId, error: providerHttpFailureMessage('openai', response.status, '요약 요청') };
+      return;
+    }
+
+    let completed = false;
+    try {
+      for await (const event of readOpenAiResponsesStream(response.body, timeout.signal)) {
+        if (event.type === 'response.output_text.delta' && event.delta) {
+          generatedText += event.delta;
+          yield { type: 'llm.delta', messageId, text: event.delta };
+          continue;
+        }
+        if (event.type === 'response.completed' || event.type === 'response.output_text.done') {
+          completed = true;
+          continue;
+        }
+        if (event.type === 'response.failed' || event.type === 'error') {
+          yield { type: 'llm.failed', messageId, error: responseErrorMessage(event) };
+          return;
+        }
+      }
+    } catch {
+      yield { type: 'llm.failed', messageId, error: providerStreamFailureMessage('openai') };
+      return;
+    }
+
+    if (!completed) {
+      yield { type: 'llm.failed', messageId, error: 'OpenAI stream ended before a completion event.' };
+      return;
+    }
+    yield { type: 'llm.completed', messageId, confidence: 'high', citationSourceIds: extractCitedSourceIds(generatedText, bundle.sourceIds), reviewRequired: true };
+  } finally {
+    timeout.clear();
   }
-  yield { type: 'llm.completed', messageId, confidence: 'high', citationSourceIds: extractCitedSourceIds(generatedText, bundle.sourceIds), reviewRequired: true };
 }
 
 export async function testOpenAiConnection(config: LlmRuntimeConfig): Promise<LlmTestResult> {
   try {
-    const response = await fetch('https://api.openai.com/v1/responses', {
+    const response = await fetchWithProviderTimeout('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -76,10 +83,10 @@ export async function testOpenAiConnection(config: LlmRuntimeConfig): Promise<Ll
   }
 }
 
-export async function* readOpenAiResponsesStream(body: ReadableStream<Uint8Array>): AsyncGenerator<ResponsesStreamEvent> {
+export async function* readOpenAiResponsesStream(body: ReadableStream<Uint8Array>, signal?: AbortSignal): AsyncGenerator<ResponsesStreamEvent> {
   const decoder = new TextDecoder();
   let buffer = '';
-  for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
+  for await (const chunk of readAbortableStream(body, signal)) {
     buffer += decoder.decode(chunk, { stream: true });
     const parts = buffer.split('\n\n');
     buffer = parts.pop() ?? '';
