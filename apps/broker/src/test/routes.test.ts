@@ -935,6 +935,34 @@ describe('broker routes', () => {
     expect(response.headers['x-frame-options']).toBe('DENY');
     expect(response.headers['x-content-type-options']).toBe('nosniff');
     expect(response.headers['referrer-policy']).toBe('strict-origin-when-cross-origin');
+    expect(response.headers['cross-origin-resource-policy']).toBe('same-site');
+    expect(response.headers['permissions-policy']).toBe('camera=(), microphone=(), geolocation=(), payment=(), usb=(), fullscreen=(self)');
+    expect(response.headers['cross-origin-opener-policy']).toBe('same-origin-allow-popups');
+    expect(response.headers['strict-transport-security']).toBeUndefined();
+  }, 30_000);
+
+  it('emits HSTS only for production HTTPS requests', async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousOrigins = process.env.BROKER_ALLOWED_ORIGINS;
+    process.env.NODE_ENV = 'production';
+    process.env.BROKER_ALLOWED_ORIGINS = 'https://app.example.com';
+
+    const productionApp = buildApp();
+    try {
+      const httpResponse = await productionApp.inject({ method: 'GET', url: '/api/history' });
+      const httpsResponse = await productionApp.inject({
+        method: 'GET',
+        url: '/api/history',
+        headers: { 'x-forwarded-proto': 'https' }
+      });
+
+      expect(httpResponse.headers['strict-transport-security']).toBeUndefined();
+      expect(httpsResponse.headers['strict-transport-security']).toBe('max-age=31536000; includeSubDomains');
+    } finally {
+      await productionApp.close();
+      restoreEnv('NODE_ENV', previousNodeEnv);
+      restoreEnv('BROKER_ALLOWED_ORIGINS', previousOrigins);
+    }
   }, 30_000);
 
   it('rejects unsafe browser mutations from untrusted origins before touching settings', async () => {

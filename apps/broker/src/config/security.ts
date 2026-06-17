@@ -40,8 +40,14 @@ export function isSafeBrowserMutationSource(origin: string | undefined, referer:
   }
 }
 
-export function securityHeaders(): Record<string, string> {
-  return {
+export interface SecurityHeadersOptions {
+  env?: NodeJS.ProcessEnv;
+  isHttps?: boolean;
+}
+
+export function securityHeaders(options: SecurityHeadersOptions = {}): Record<string, string> {
+  const env = options.env ?? process.env;
+  const headers: Record<string, string> = {
     'Content-Security-Policy': [
       "default-src 'self'",
       "base-uri 'self'",
@@ -53,11 +59,19 @@ export function securityHeaders(): Record<string, string> {
       "style-src 'self' 'unsafe-inline'",
       "connect-src 'self' http://localhost:8787 http://127.0.0.1:8787"
     ].join('; '),
+    'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
     'Cross-Origin-Resource-Policy': 'same-site',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), fullscreen=(self)',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY'
   };
+
+  if (isProductionRuntime(env) && options.isHttps === true) {
+    headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+  }
+
+  return headers;
 }
 
 export function hasCredentialEnvironment(env = process.env): boolean {
