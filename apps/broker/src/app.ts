@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerCopilotRoutes } from './routes/copilot.js';
@@ -9,7 +9,7 @@ export function buildApp() {
   const app = Fastify({ logger: false, bodyLimit: brokerBodyLimitBytes() });
   app.register(cors, { credentials: true, origin: getAllowedOrigins() });
   app.addHook('onRequest', async (request, reply) => {
-    for (const [name, value] of Object.entries(securityHeaders())) reply.header(name, value);
+    for (const [name, value] of Object.entries(securityHeaders({ isHttps: isHttpsRequest(request) }))) reply.header(name, value);
     if (!isUnsafeMutation(request.method)) return;
     const origin = request.headers.origin;
     const referer = request.headers.referer;
@@ -23,6 +23,13 @@ export function buildApp() {
 
 function isUnsafeMutation(method: string): boolean {
   return method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
+}
+
+function isHttpsRequest(request: FastifyRequest): boolean {
+  if (request.protocol === 'https') return true;
+  const forwardedProto = request.headers['x-forwarded-proto'];
+  const firstForwardedProto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
+  return firstForwardedProto?.split(',')[0]?.trim().toLowerCase() === 'https';
 }
 
 function brokerBodyLimitBytes(env = process.env): number {
